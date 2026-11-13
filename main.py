@@ -66,8 +66,8 @@ LOSE_LOSS = 1.0
 TAI, XIU = "TAI", "XIU"
 
 MODES = {
-    "antoan": {"label": "An toàn", "post": 0.97, "min_sessions": 80},
-    "canbang": {"label": "Cân bằng", "post": 0.92, "min_sessions": 50},
+    "antoan": {"label": "An toàn", "post": 0.75, "min_sessions": 80},
+    "canbang": {"label": "Cân bằng", "post": 0.55, "min_sessions": 50},
     "maohiem": {"label": "Mạo hiểm", "post": 0.0, "min_sessions": 1, "never_skip": True},
 }
 DEFAULT_MODE = "canbang"
@@ -241,6 +241,7 @@ class CauEngine:
         self.skips = 0
         self.extra_post = 0.0
         self.loss = {}
+        self.skip_streak = 0
 
     def ingest(self, records):
         added = 0
@@ -299,6 +300,8 @@ class CauEngine:
         z = sum(raw.values())
         return {key: raw[key] / z for key in keys}
 
+    MAX_SKIP_STREAK = 2
+
     def predict(self, mode=DEFAULT_MODE):
         cfg = MODES.get(mode, MODES[DEFAULT_MODE])
         never_skip = cfg.get("never_skip", False)
@@ -327,29 +330,41 @@ class CauEngine:
             "experts": {k: ex[k][0] for k in keys},
         }
 
-        if n < cfg["min_sessions"] and not never_skip:
-            out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
-            return out
         if never_skip:
+            self.skip_streak = 0
             out["side"] = side
             out["reason"] = "Đánh mọi phiên" if agree else "Các cách đoán chưa thống nhất, lấy trung bình"
             return out
 
-        need = cfg["post"] + self.extra_post
+        if n < cfg["min_sessions"]:
+            out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
+            return out
+
+        need = cfg["post"]
+        block = None
         if not agree:
-            self.skips += 1
-            out["reason"] = "Các cách đoán chưa thống nhất"
+            block = "Các cách đoán chưa thống nhất"
+        elif post < need:
+            block = f"Chưa đủ chắc ({post:.0%}, cần {need:.0%})"
+        elif ev <= 0:
+            block = "Không có lợi về lâu dài"
+
+        if block is None:
+            self.skip_streak = 0
+            out["side"] = side
+            out["reason"] = f"Đủ chắc ({post:.0%}), có thể cược"
             return out
-        if post < need:
-            self.skips += 1
-            out["reason"] = f"Chưa đủ chắc ({post:.0%}, cần {need:.0%})"
+
+        if self.skip_streak >= self.MAX_SKIP_STREAK:
+            # Đã bỏ đủ 2 phiên liên tiếp: phiên này bắt buộc cược theo phía nghiêng hơn.
+            self.skip_streak = 0
+            out["side"] = side
+            out["reason"] = f"Đã bỏ {self.MAX_SKIP_STREAK} phiên liên tiếp, cược theo phía nghiêng ({post:.0%})"
             return out
-        if ev <= 0:
-            self.skips += 1
-            out["reason"] = "Không có lợi về lâu dài"
-            return out
-        out["side"] = side
-        out["reason"] = f"Đủ chắc ({post:.0%}), có thể cược"
+
+        self.skip_streak += 1
+        self.skips += 1
+        out["reason"] = f"{block}, bỏ {self.skip_streak}/{self.MAX_SKIP_STREAK} liên tiếp"
         return out
 
     def learn(self, experts_p, p_tai, actual):
@@ -571,54 +586,45 @@ def lichsu_text(rows, n):
 
 
 START_TEXT = """🎰 Auto Cược LC79
-Dự đoán Tài/Xỉu, tự động cược cho bạn.
+🎯 Dự đoán Tài/Xỉu, tự động cược
 
-─── Tài khoản ───
-/dangnhap TK MK
-   đăng nhập và bắt đầu theo dõi
-/dung
+─── 🔐 Tài khoản ───
+🔑 /dangnhap TK MK
+   đăng nhập, bắt đầu theo dõi
+⏹️ /dung
    ngắt kết nối
 
-─── Đặt cược ───
-/tudong bat 10k
-   bật tự động, mỗi phiên 10k
-/tudong tat
+─── 🎲 Đặt cược ───
+⚡ /tudong bat 10k
+   bật tự động, 10k mỗi phiên
+🛑 /tudong tat
    tắt tự động
-/x2 bat
+💸 /x2 bat
    thua thì gấp đôi, tối đa 6 lần
-/x2 tat
+↩️ /x2 tat
    tắt gấp đôi
 
-─── Cài đặt ───
-/caidat
+─── ⚙️ Cài đặt ───
+📋 /caidat
    xem cấu hình hiện tại
-/caidat cuoc=10k sl=1m
+🔧 /caidat cuoc=10k sl=1m
    sw=5m limit=50m
    mode=maohiem thongbao=bat
 
-─── Theo dõi ───
-/thongtin
+─── 📊 Theo dõi ───
+💰 /thongtin
    số dư, thắng thua, độ chính xác
-/lichsu 10
+📜 /lichsu 10
    10 phiên gần nhất
+📖 /start
+   xem lại hướng dẫn này
 
-─── Chế độ ───
-antoan   chỉ đánh khi rất chắc
-         (từ 97%)
-canbang  chỉ đánh khi khá chắc
-         (từ 92%)
-maohiem  đánh mọi phiên
-
-─── Bot tính thế nào ───
-Bot chạy 8 cách dự đoán khác nhau.
-Cách nào đoán đúng gần đây sẽ được
-tin hơn. Ở chế độ antoan và canbang,
-bot chỉ cược khi các cách đồng ý
-và có lợi về lâu dài.
-
-Tài/Xỉu vốn ngẫu nhiên nên không ai
-đảm bảo thắng. Hãy chơi bằng số tiền
-bạn chấp nhận mất.
+─── 🧭 Chế độ ───
+🟢 antoan   chắc từ 75%
+🟡 canbang  chắc từ 55%
+🔴 maohiem  đánh mọi phiên
+⏭️ antoan, canbang không bỏ quá
+   2 phiên liên tiếp
 """
 
 
@@ -944,7 +950,7 @@ def cmd_dangnhap(m):
     msg = bot.reply_to(m, box("Đang đăng nhập, chờ chút nhé..."), parse_mode="HTML")
     res = login_and_get_token(p[1], p[2])
     if "_error" in res:
-        return edit(f"Đăng nhập chưa được.\n{res['_error']}", cid, msg.message_id)
+        return edit(f"❌ Đăng nhập chưa được.\n{res['_error']}", cid, msg.message_id)
 
     st = get_state(cid)
     stop_user(cid)
@@ -955,7 +961,7 @@ def cmd_dangnhap(m):
         st["running"] = True
         st["gen"] += 1
         gen = st["gen"]
-    edit("Đăng nhập xong rồi.\n" + kv([
+    edit("✅ Đăng nhập xong rồi.\n" + kv([
         ("Tài khoản", res["nickname"]),
         ("Số dư", fmt(res["money"])),
         ("Nạp phiên", f"mỗi {SYNC_INTERVAL} giây"),
@@ -967,7 +973,7 @@ def cmd_dangnhap(m):
 @bot.message_handler(commands=["dung"])
 def cmd_dung(m):
     stop_user(m.chat.id)
-    answer(m, "Đã ngắt kết nối.\nBot ngừng nạp phiên, tắt tự động và gấp đôi.")
+    answer(m, "⏹️ Đã ngắt kết nối.\nBot ngừng nạp phiên, tắt tự động và gấp đôi.")
 
 
 @bot.message_handler(commands=["tudong"])
@@ -976,26 +982,26 @@ def cmd_tudong(m):
     st = get_state(cid)
     p = m.text.split()
     if not st["running"]:
-        return answer(m, "Bạn chưa đăng nhập.\nGõ /dangnhap TK MK trước nhé.")
+        return answer(m, "🔒 Bạn chưa đăng nhập.\nGõ /dangnhap TK MK trước nhé.")
     action = norm(p[1]) if len(p) > 1 else ""
     if action not in ("bat", "tat"):
         return answer(m, "Gõ /tudong bat 10k hoặc /tudong tat.")
     if action == "tat":
         st["auto"] = False
-        return answer(m, "Đã tắt tự động.")
+        return answer(m, "🛑 Đã tắt tự động.")
     if len(p) > 2:
         try:
             st["base_bet"] = parse_amount(p[2])
         except ValueError:
-            return answer(m, "Số tiền chưa đúng.\nVí dụ: /tudong bat 10k")
+            return answer(m, "⚠️ Số tiền chưa đúng.\nVí dụ: /tudong bat 10k")
     if st["base_bet"] <= 0:
         return answer(m, "Mức cược phải lớn hơn 0.")
     block = risk_block(st, current_bet(st))
     if block:
-        return answer(m, f"Chưa bật được: {block}.\nBạn chỉnh /caidat rồi thử lại.")
+        return answer(m, f"⚠️ Chưa bật được: {block}.\nBạn chỉnh /caidat rồi thử lại.")
     st["auto"] = True
     st["mart_level"] = 0
-    answer(m, "Đã bật tự động.\n" + kv([
+    answer(m, "⚡ Đã bật tự động.\n" + kv([
         ("Mỗi phiên", fmt(st["base_bet"])),
         ("Chế độ", MODES[st["mode"]]["label"]),
     ]))
@@ -1008,7 +1014,7 @@ def cmd_x2(m):
     action = norm(p[1]) if len(p) > 1 else ""
     if action not in ("bat", "tat"):
         status = f"bật, cấp {st['mart_level']}" if st["martingale"] else "tắt"
-        return answer(m, "Gấp đôi khi thua\n" + kv([
+        return answer(m, "💸 Gấp đôi khi thua\n" + kv([
             ("Trạng thái", status),
             ("Cược gốc", fmt(st["base_bet"])),
             ("Tối đa", f"{MAX_MARTINGALE_LEVEL} lần"),
@@ -1016,10 +1022,10 @@ def cmd_x2(m):
     st["martingale"] = action == "bat"
     st["mart_level"] = 0
     if st["martingale"]:
-        answer(m, f"Đã bật gấp đôi khi thua.\nThua thì nhân {MARTINGALE_MULTIPLIER}, thắng thì về mức gốc, "
+        answer(m, f"💸 Đã bật gấp đôi khi thua.\nThua thì nhân {MARTINGALE_MULTIPLIER}, thắng thì về mức gốc, "
                   f"tối đa {MAX_MARTINGALE_LEVEL} lần.")
     else:
-        answer(m, "Đã tắt gấp đôi, về mức cược gốc.")
+        answer(m, "↩️ Đã tắt gấp đôi, về mức cược gốc.")
 
 
 @bot.message_handler(commands=["caidat"])
@@ -1027,7 +1033,7 @@ def cmd_caidat(m):
     st = get_state(m.chat.id)
     kv_in = parse_kv(m.text)
     if not kv_in:
-        return answer(m, "Cài đặt hiện tại\n\n" + setup_text(st))
+        return answer(m, "📋 Cài đặt hiện tại\n\n" + setup_text(st))
 
     updates = {}
     try:
@@ -1056,10 +1062,10 @@ def cmd_caidat(m):
             else:
                 raise ValueError(f"không có mục '{k}'")
     except ValueError as e:
-        return answer(m, f"Có chỗ chưa đúng: {e}.\nVí dụ: /caidat cuoc=10k mode=canbang")
+        return answer(m, f"⚠️ Có chỗ chưa đúng: {e}.\nVí dụ: /caidat cuoc=10k mode=canbang")
 
     st.update(updates)
-    answer(m, "Đã lưu.\n\n" + setup_text(st))
+    answer(m, "✅ Đã lưu.\n\n" + setup_text(st))
 
 
 @bot.message_handler(commands=["thongtin"])
@@ -1075,7 +1081,7 @@ def cmd_lichsu(m):
     n = max(1, min(n, 40))
     rows = list(st["bet_log"])
     if not rows:
-        return answer(m, "Chưa có lịch sử.\nBạn đăng nhập rồi chờ ít nhất một phiên kết thúc nhé.")
+        return answer(m, "📭 Chưa có lịch sử.\nBạn đăng nhập rồi chờ ít nhất một phiên kết thúc nhé.")
     answer(m, lichsu_text(rows, n))
 
 
