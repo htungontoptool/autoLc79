@@ -62,6 +62,8 @@ MARTINGALE_MULTIPLIER = 2
 # Tỷ lệ trả thưởng: thắng lãi 1.98 lần cược, thua mất 1 lần cược.
 WIN_PROFIT = 1.98
 LOSE_LOSS = 1.0
+# Tỷ lệ thắng tối thiểu để cược có lợi về lâu dài: p * W - (1 - p) * L > 0.
+BREAK_EVEN = LOSE_LOSS / (LOSE_LOSS + WIN_PROFIT)
 
 TAI, XIU = "TAI", "XIU"
 
@@ -81,6 +83,7 @@ bot.set_my_commands([
     telebot.types.BotCommand("caidat", "Xem hoặc đổi cài đặt"),
     telebot.types.BotCommand("thongtin", "Tài khoản và thống kê"),
     telebot.types.BotCommand("lichsu", "Lịch sử đúng sai, lãi lỗ"),
+    telebot.types.BotCommand("kiemthu", "Thử thuật toán trên lịch sử"),
 ])
 
 state_lock = threading.RLock()
@@ -186,13 +189,13 @@ def trail(seq, n=10):
     return "".join("🔵" if x == TAI else "🔴" for x in seq[-n:])
 
 
-DICE_FACES = "⚀⚁⚂⚃⚄⚅"
 
 
 def dice_faces(dice):
+    """Xúc xắc hiển thị bằng icon 🎲 kèm số mặt, không dùng glyph ⚀-⚅ (đen trắng)."""
     if not dice:
         return "?"
-    return " ".join(DICE_FACES[x - 1] if 1 <= x <= 6 else str(x) for x in dice)
+    return " ".join(f"🎲{x}" for x in dice)
 
 
 # ============================================================
@@ -224,6 +227,52 @@ def beta_prob_above(a, b, x0=0.5, steps=400):
     return min(1.0, max(0.0, total * h / 3))
 
 
+def gammaincc(a, x):
+    """Q(a, x) = phần đuôi của hàm gamma không hoàn chỉnh chuẩn hóa."""
+    if x <= 0:
+        return 1.0
+    log_pref = -x + a * math.log(x) - math.lgamma(a)
+    if x < a + 1:
+        term = 1.0 / a
+        total = term
+        ap = a
+        for _ in range(500):
+            ap += 1
+            term *= x / ap
+            total += term
+            if abs(term) < abs(total) * 1e-12:
+                break
+        return max(0.0, 1.0 - total * math.exp(log_pref))
+    b = x + 1 - a
+    c = 1e300
+    d = 1.0 / b
+    h = d
+    for i in range(1, 500):
+        an = -i * (i - a)
+        b += 2
+        d = an * d + b
+        d = 1.0 / d if abs(d) > 1e-300 else 1e300
+        c = b + an / c
+        delta = c * d
+        h *= delta
+        if abs(delta - 1) < 1e-12:
+            break
+    return min(1.0, math.exp(log_pref) * h)
+
+
+def chi2_sf(x, df):
+    """P(chi-bình phương > x) với df bậc tự do: giá trị p của kiểm định lệch."""
+    return gammaincc(df / 2.0, x / 2.0)
+
+
+def describe_p(p):
+    if p is None:
+        return "chưa đủ dữ liệu"
+    if p < 0.05:
+        return f"có dấu hiệu (p={p:.3f})"
+    return f"chưa thấy lệch (p={p:.2f})"
+
+
 class CauEngine:
     """8 mô hình (tần suất, Markov bậc 1-3, mỗi loại nhanh và chậm), trọng số học theo lỗ."""
 
@@ -249,7 +298,7 @@ class CauEngine:
             sid, res = rec.get("session"), rec.get("result")
             if sid is None or res not in (TAI, XIU) or sid in self.recs:
                 continue
-            self.recs[sid] = (res, rec.get("total", 0))
+            self.recs[sid] = (res, rec.get("total", 0), rec.get("dice") or [])
             added += 1
         if added:
             ordered = sorted(self.recs.items(), key=lambda kv_: kv_[0])[-MAX_HISTORY:]
@@ -319,8 +368,12 @@ class CauEngine:
 
         side = TAI if p_tai >= 0.5 else XIU
         p_side = max(p_tai, 1 - p_tai)
-        post_tai = beta_prob_above(p_tai * n_eff + 1, (1 - p_tai) * n_eff + 1)
-        post = post_tai if side == TAI else 1 - post_tai
+        a_, b_ = p_tai * n_eff + 1, (1 - p_tai) * n_eff + 1
+        # Độ chắc = xác suất thật của phía chọn vượt điểm hòa vốn (không phải 50%).
+        if side == TAI:
+            post = beta_prob_above(a_, b_, x0=BREAK_EVEN)
+        else:
+            post = 1 - beta_prob_above(a_, b_, x0=1 - BREAK_EVEN)
         ev = p_side * WIN_PROFIT - (1 - p_side) * LOSE_LOSS
 
         out = {
@@ -366,6 +419,29 @@ class CauEngine:
         self.skips += 1
         out["reason"] = f"{block}, bỏ {self.skip_streak}/{self.MAX_SKIP_STREAK} liên tiếp"
         return out
+
+    def bias_report(self):
+        """p-value của hai kiểm định: xúc xắc có lệch mặt không, Tài/Xỉu có lệch 50/50 không."""
+        recs = list(self.recs.values())
+        faces = [0] * 6
+        for _, _, dice in recs[-300:]:
+            for x in dice:
+                if 1 <= x <= 6:
+                    faces[x - 1] += 1
+        total = sum(faces)
+        p_face = None
+        if total >= 60:
+            exp = total / 6.0
+            chi = sum((o - exp) ** 2 / exp for o in faces)
+            p_face = chi2_sf(chi, 5)
+        seq = self.results()[-500:]
+        n = len(seq)
+        p_tx = None
+        if n >= 30:
+            k = sum(1 for x in seq if x == TAI)
+            z = (k - n / 2.0) / math.sqrt(n / 4.0)
+            p_tx = math.erfc(abs(z) / math.sqrt(2))
+        return p_face, p_tx
 
     def learn(self, experts_p, p_tai, actual):
         if not experts_p:
@@ -533,6 +609,7 @@ def account_text(st):
     ll = eng.logloss()
     ll_txt = f"{ll:.3f}  (đoán ngẫu nhiên 0.693)" if ll is not None else "chưa đủ dữ liệu"
     x2 = f"bật, cấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "tắt"
+    p_face, p_tx = eng.bias_report()
     return "\n".join([
         f"👤 Tài khoản {st['nickname'] or '—'}",
         "",
@@ -552,6 +629,9 @@ def account_text(st):
             ("Đoán đúng", f"{eng.accuracy():.1f}%  trên {len(eng.perf)} phiên"),
             ("ROI kỳ vọng", f"{eng.expected_roi() * 100:+.1f}% mỗi cược"),
             ("Sai số", ll_txt),
+            ("Hòa vốn", f"{BREAK_EVEN:.1%}  (trả {WIN_PROFIT:g})"),
+            ("Lệch xúc xắc", describe_p(p_face)),
+            ("Lệch Tài/Xỉu", describe_p(p_tx)),
             ("Đã nạp", f"{len(eng.recs)} phiên, bỏ qua {eng.skips}"),
         ]),
         "",
@@ -616,6 +696,8 @@ START_TEXT = """🎰 Auto Cược LC79
    số dư, thắng thua, độ chính xác
 📜 /lichsu 10
    10 phiên gần nhất
+🧪 /kiemthu
+   thử lại thuật toán trên lịch sử
 📖 /start
    xem lại hướng dẫn này
 
@@ -679,6 +761,7 @@ def sync_loop(cid, gen):
                     added = st["engine"].ingest(arr)
                 if added:
                     log.info("[%s] nạp thêm %d phiên, tổng %d", cid, added, len(st["engine"].recs))
+                poll_round(cid, arr)
         except Exception:
             log.exception("Lỗi nạp phiên ngầm cho %s", cid)
         for _ in range(SYNC_INTERVAL):
@@ -710,6 +793,55 @@ def login_and_get_token(u, p):
 # ============================================================
 # CHỐT PHIÊN, CƯỢC, WEBSOCKET
 # ============================================================
+def open_round(cid, sid):
+    """Mở một ván: dự đoán, gửi thẻ dự đoán và tạo trạng thái chờ cược."""
+    st = get_state(cid)
+    with state_lock:
+        st["session_id"] = sid
+        info = st["engine"].predict(st["mode"])
+        p_side = info["p"] if info["side"] == TAI else 1 - info["p"]
+        text = prediction_text(sid, info, st)
+        pend = {"sid": sid, "pred": info["side"], "p_side": p_side, "p_tai": info["p_tai"],
+                "experts": info["experts"], "placed": False, "sent": False, "bet": 0,
+                "base": text, "status": [], "msg_id": None, "done": False}
+        st["pending"] = pend
+    try:
+        sent = bot.send_message(cid, box(text), parse_mode="HTML")
+        with state_lock:
+            pend["msg_id"] = sent.message_id
+    except Exception as e:
+        log.warning("Không gửi được dự đoán cho %s: %s", cid, e)
+    return pend
+
+
+def poll_round(cid, arr):
+    """Dự phòng khi websocket không gửi sự kiện phiên mới: theo dõi lịch sử API."""
+    st = get_state(cid)
+    now = time.time()
+    if st.get("ws_seen", 0) and now - st["ws_seen"] < 90:
+        return
+    if now - st.get("login_at", now) < 60:
+        return
+    last = arr[-1]
+    sid_last = last["session"]
+    if not st.get("poll_on"):
+        st["poll_on"] = True
+        say(cid, "Websocket chưa gửi phiên mới. Bot đang theo dõi qua lịch sử. "
+                 "Cược tự động cần websocket hoạt động.", force=True)
+    to_settle = None
+    with state_lock:
+        if st.get("poll_last_id") == sid_last:
+            return
+        st["poll_last_id"] = sid_last
+        if st["pending"] is not None:
+            to_settle = st["pending"]
+            st["pending"] = None
+            to_settle["done"] = True
+    if to_settle is not None:
+        settle_round(cid, last["result"], last["dice"], to_settle)
+    open_round(cid, sid_last + 1)
+
+
 def render_pending(pend):
     if not pend["status"]:
         return pend["base"]
@@ -838,22 +970,8 @@ def start_websocket(cid, token):
 
     @sio.on("new-session", namespace="/txmd5")
     def new_sess(d):
-        sid = d.get("id")
-        with state_lock:
-            st["session_id"] = sid
-            info = st["engine"].predict(st["mode"])
-            p_side = info["p"] if info["side"] == TAI else 1 - info["p"]
-            text = prediction_text(sid, info, st)
-            pend = {"sid": sid, "pred": info["side"], "p_side": p_side, "p_tai": info["p_tai"],
-                    "experts": info["experts"], "placed": False, "sent": False, "bet": 0,
-                    "base": text, "status": [], "msg_id": None, "done": False}
-            st["pending"] = pend
-        try:
-            sent = bot.send_message(cid, box(text), parse_mode="HTML")
-            with state_lock:
-                pend["msg_id"] = sent.message_id
-        except Exception as e:
-            log.warning("Không gửi được dự đoán cho %s: %s", cid, e)
+        st["ws_seen"] = time.time()
+        open_round(cid, d.get("id"))
 
     @sio.on("tick-update", namespace="/txmd5")
     def tk(d):
@@ -909,6 +1027,10 @@ def start_websocket(cid, token):
             st["pending"] = None
         threading.Thread(target=settle_round, args=(cid, res, d.get("dices"), pend), daemon=True).start()
 
+    @sio.on("connect_error")
+    def connect_error(data):
+        say(cid, f"Không kết nối được websocket: {str(data)[:80]}", force=True)
+
     try:
         sio.connect(WS_URL, socketio_path="txmd5/", namespaces=["/txmd5"],
                     transports=["websocket"], auth={"token": token},
@@ -959,6 +1081,7 @@ def cmd_dangnhap(m):
         st["nickname"] = res["nickname"]
         st["profit"] = 0
         st["running"] = True
+        st["login_at"] = time.time()
         st["gen"] += 1
         gen = st["gen"]
     edit("✅ Đăng nhập xong rồi.\n" + kv([
@@ -1071,6 +1194,57 @@ def cmd_caidat(m):
 @bot.message_handler(commands=["thongtin"])
 def cmd_thongtin(m):
     answer(m, account_text(get_state(m.chat.id)))
+
+
+def backtest(records, mode, base_bet):
+    """Chạy lại đúng quy trình trực tuyến trên lịch sử: đoán, cược, rồi mới học kết quả."""
+    eng = CauEngine()
+    bets = wins = 0
+    profit = 0.0
+    for sid, res, total, dice in records:
+        info = eng.predict(mode)
+        if info["side"] is not None:
+            bets += 1
+            if info["side"] == res:
+                wins += 1
+                profit += base_bet * WIN_PROFIT
+            else:
+                profit -= base_bet * LOSE_LOSS
+        eng.learn(info["experts"], info["p_tai"], res)
+        eng.ingest([{"session": sid, "result": res, "total": total, "dice": dice}])
+    return bets, wins, profit
+
+
+@bot.message_handler(commands=["kiemthu"])
+def cmd_kiemthu(m):
+    st = get_state(m.chat.id)
+    items = sorted(st["engine"].recs.items(), key=lambda kv_: kv_[0])
+    records = [(sid, v[0], v[1], v[2]) for sid, v in items]
+    if len(records) < 60:
+        return answer(m, f"Cần ít nhất 60 phiên để thử.\nHiện có {len(records)} phiên.\n"
+                         f"Gõ /dangnhap để nạp thêm lịch sử.")
+    n = len(records)
+    bet = st["base_bet"]
+
+    def pnl(bets, wins, win_mult):
+        return wins * bet * win_mult - (bets - wins) * bet * LOSE_LOSS
+
+    rows_a, rows_b = [], []
+    for key, label in (("antoan", "An toàn"), ("canbang", "Cân bằng"), ("maohiem", "Mạo hiểm")):
+        bets, wins, _ = backtest(records, key, bet)
+        wr = wins / bets * 100 if bets else 0
+        rows_a.append((label, f"{bets} cược · đúng {wr:.1f}%"))
+        rows_b.append((label, f"{signed(pnl(bets, wins, 1.98))} / {signed(pnl(bets, wins, 0.98))}"))
+    tai_wins = sum(1 for r in records if r[1] == TAI)
+    rows_a.append(("Luôn TÀI", f"{n} cược · đúng {tai_wins / n * 100:.1f}%"))
+    rows_b.append(("Luôn TÀI", f"{signed(pnl(n, tai_wins, 1.98))} / {signed(pnl(n, tai_wins, 0.98))}"))
+
+    lines = [f"🧪 Thử lại trên {n} phiên", f"Mức cược {fmt(bet)}", "", kv(rows_a), "",
+             "Lãi/lỗ: trả x1.98 / trả x0.98", kv(rows_b), "",
+             "Số sau dấu / là khi sàn trả 0.98.",
+             "Đây là số liệu đã qua, không hứa",
+             "hẹn kết quả tương lai."]
+    answer(m, "\n".join(lines))
 
 
 @bot.message_handler(commands=["lichsu"])
