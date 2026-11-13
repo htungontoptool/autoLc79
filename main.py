@@ -265,6 +265,26 @@ def chi2_sf(x, df):
     return gammaincc(df / 2.0, x / 2.0)
 
 
+def binom_p_le(k, n):
+    """P(X <= k) với X ~ Binomial(n, 1/2): xác suất đoán đúng ít nhất như vậy nếu chỉ là may rủi."""
+    if n <= 0:
+        return 1.0
+    return sum(math.comb(n, i) for i in range(0, k + 1)) / (2 ** n)
+
+
+def danh_gia(k, n):
+    """Kết luận về độ đúng của dự đoán so với tung đồng xu."""
+    if n < 30:
+        return f"chưa đủ dữ liệu ({n} phiên)"
+    p_lo = binom_p_le(k, n)
+    if p_lo < 0.05:
+        return f"kém ngẫu nhiên (p={p_lo:.3f})"
+    p_hi = 1 - binom_p_le(k - 1, n)
+    if p_hi < 0.05:
+        return f"tốt hơn ngẫu nhiên (p={p_hi:.3f})"
+    return "chưa khác ngẫu nhiên"
+
+
 def describe_p(p):
     if p is None:
         return "chưa đủ dữ liệu"
@@ -291,6 +311,7 @@ class CauEngine:
         self.extra_post = 0.0
         self.loss = {}
         self.skip_streak = 0
+        self.shadow = {}
 
     def ingest(self, records):
         added = 0
@@ -350,6 +371,41 @@ class CauEngine:
         return {key: raw[key] / z for key in keys}
 
     MAX_SKIP_STREAK = 2
+    STRATS = ("theo_cau", "dao_cau", "markov1", "tan_suat", "tong_hop")
+    STRAT_NAMES = {"theo_cau": "Theo cầu", "dao_cau": "Đảo cầu", "markov1": "Markov 1",
+                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp"}
+    SHADOW_WINDOW = 80
+    SHADOW_MIN = 30
+
+    def strategy_preds(self, seq, p_tai):
+        """Dự đoán của từng chiến lược cho ván hiện tại (chỉ dùng dữ liệu đã có)."""
+        last = seq[-1]
+        p1, _ = self._estimate(seq, self.HALF_LIVES[1], 1)
+        p0, _ = self._estimate(seq, self.HALF_LIVES[1], 0)
+        return {
+            "theo_cau": last,
+            "dao_cau": XIU if last == TAI else TAI,
+            "markov1": TAI if p1 >= 0.5 else XIU,
+            "tan_suat": TAI if p0 >= 0.5 else XIU,
+            "tong_hop": TAI if p_tai >= 0.5 else XIU,
+        }
+
+    def pick_strategy(self):
+        """Chọn chiến lược đúng nhiều nhất gần đây, chỉ khi vượt ngẫu nhiên sau hiệu chỉnh nhiều lần thử."""
+        best = None
+        for name in self.STRATS:
+            hits = list(self.shadow.get(name, []))[-self.SHADOW_WINDOW:]
+            n = len(hits)
+            if n < self.SHADOW_MIN:
+                continue
+            k = sum(hits)
+            p_adj = min(1.0, len(self.STRATS) * (1 - binom_p_le(k - 1, n)))
+            cand = (name, k, n, p_adj)
+            if best is None or (p_adj, -k / n) < (best[3], -best[1] / best[2]):
+                best = cand
+        if best is None or best[3] >= 0.05:
+            return None
+        return best
 
     def predict(self, mode=DEFAULT_MODE):
         cfg = MODES.get(mode, MODES[DEFAULT_MODE])
@@ -364,39 +420,46 @@ class CauEngine:
 
         fast, slow = (3, self.HALF_LIVES[0]), (3, self.HALF_LIVES[1])
         n_eff = (ex[fast][1] + ex[slow][1]) / 2
-        agree = (ex[fast][0] >= 0.5) == (ex[slow][0] >= 0.5)
 
         side = TAI if p_tai >= 0.5 else XIU
         p_side = max(p_tai, 1 - p_tai)
         a_, b_ = p_tai * n_eff + 1, (1 - p_tai) * n_eff + 1
-        # Độ chắc = xác suất thật của phía chọn vượt điểm hòa vốn (không phải 50%).
         if side == TAI:
             post = beta_prob_above(a_, b_, x0=BREAK_EVEN)
         else:
             post = 1 - beta_prob_above(a_, b_, x0=1 - BREAK_EVEN)
         ev = p_side * WIN_PROFIT - (1 - p_side) * LOSE_LOSS
+        strat = self.strategy_preds(seq, p_tai) if n else {}
+        pick = self.pick_strategy() if n else None
 
         out = {
             "side": None, "p": p_tai, "post": post, "n_eff": n_eff, "ev": ev,
-            "reason": "", "agree": agree, "p_tai": p_tai,
+            "reason": "", "agree": True, "p_tai": p_tai, "strat": strat,
             "ctx": f"{expert_name(top)} {w[top]:.0%}",
             "experts": {k: ex[k][0] for k in keys},
         }
+        if pick:
+            name, k, pn, _ = pick
+            out["ctx"] = f"{self.STRAT_NAMES[name]} · đúng {k}/{pn}"
+        else:
+            out["ctx"] = "Chưa cách nào vượt ngẫu nhiên"
 
-        if never_skip:
-            self.skip_streak = 0
-            out["side"] = side
-            out["reason"] = "Đánh mọi phiên" if agree else "Các cách đoán chưa thống nhất, lấy trung bình"
-            return out
-
-        if n < cfg["min_sessions"]:
+        if n < cfg["min_sessions"] and not never_skip:
             out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
             return out
 
-        need = cfg["post"]
+        if never_skip:
+            self.skip_streak = 0
+            out["side"] = strat[pick[0]] if pick else side
+            out["reason"] = "Đánh theo cách đang dẫn đầu" if pick else "Đánh theo tổng hợp"
+            return out
+
+        need = cfg["post"] + self.extra_post
         block = None
-        if not agree:
-            block = "Các cách đoán chưa thống nhất"
+        if pick is None:
+            block = "Chưa cách nào vượt ngẫu nhiên"
+        elif strat[pick[0]] != side:
+            block = "Cách dẫn đầu và tổng hợp đang lệch"
         elif post < need:
             block = f"Chưa đủ chắc ({post:.0%}, cần {need:.0%})"
         elif ev <= 0:
@@ -409,7 +472,6 @@ class CauEngine:
             return out
 
         if self.skip_streak >= self.MAX_SKIP_STREAK:
-            # Đã bỏ đủ 2 phiên liên tiếp: phiên này bắt buộc cược theo phía nghiêng hơn.
             self.skip_streak = 0
             out["side"] = side
             out["reason"] = f"Đã bỏ {self.MAX_SKIP_STREAK} phiên liên tiếp, cược theo phía nghiêng ({post:.0%})"
@@ -419,6 +481,12 @@ class CauEngine:
         self.skips += 1
         out["reason"] = f"{block}, bỏ {self.skip_streak}/{self.MAX_SKIP_STREAK} liên tiếp"
         return out
+
+    def record_shadow(self, strat, actual):
+        """Ghi nhận từng chiến lược đúng hay sai sau khi biết kết quả."""
+        for name, pred in (strat or {}).items():
+            dq = self.shadow.setdefault(name, deque(maxlen=self.SHADOW_WINDOW * 2))
+            dq.append(1 if pred == actual else 0)
 
     def bias_report(self):
         """p-value của hai kiểm định: xúc xắc có lệch mặt không, Tài/Xỉu có lệch 50/50 không."""
@@ -464,6 +532,20 @@ class CauEngine:
                 self.extra_post = min(0.04, self.extra_post + 0.01)
             elif acc > 0.55:
                 self.extra_post = max(0.0, self.extra_post - 0.005)
+
+    PAUSE_WINDOW = 80
+    PAUSE_P = 0.05
+
+    def recent_hits(self):
+        recent = list(self.perf)[-self.PAUSE_WINDOW:]
+        n = len(recent)
+        k = sum(1 for pr, ac, _ in recent if pr == ac)
+        return k, n
+
+    def worse_than_chance(self):
+        """Tạm dừng cược khi dự đoán gần đây kém ngẫu nhiên có ý nghĩa thống kê."""
+        k, n = self.recent_hits()
+        return n >= 30 and binom_p_le(k, n) < self.PAUSE_P
 
     def accuracy(self):
         if not self.perf:
@@ -627,6 +709,7 @@ def account_text(st):
         kv([
             ("Thắng/thua", f"{st['total_win']} / {st['total_lose']}  ({wr:.1f}%)"),
             ("Đoán đúng", f"{eng.accuracy():.1f}%  trên {len(eng.perf)} phiên"),
+            ("Đánh giá", danh_gia(*eng.recent_hits())),
             ("ROI kỳ vọng", f"{eng.expected_roi() * 100:+.1f}% mỗi cược"),
             ("Sai số", ll_txt),
             ("Hòa vốn", f"{BREAK_EVEN:.1%}  (trả {WIN_PROFIT:g})"),
@@ -660,6 +743,7 @@ def lichsu_text(rows, n):
     lines += ["", kv([
         ("Đoán đúng", f"{hit} / {len(scored)}  ({pct:.1f}%)"),
         ("Đã cược", f"{len(placed)} lần, thắng {wins}, thua {len(placed) - wins}"),
+        ("Đánh giá", danh_gia(hit, len(scored))),
         ("Lãi/lỗ", signed(profit)),
     ])]
     return "\n".join(lines)
@@ -802,7 +886,7 @@ def open_round(cid, sid):
         p_side = info["p"] if info["side"] == TAI else 1 - info["p"]
         text = prediction_text(sid, info, st)
         pend = {"sid": sid, "pred": info["side"], "p_side": p_side, "p_tai": info["p_tai"],
-                "experts": info["experts"], "placed": False, "sent": False, "bet": 0,
+                "experts": info["experts"], "strat": info.get("strat", {}), "placed": False, "sent": False, "bet": 0,
                 "base": text, "status": [], "msg_id": None, "done": False}
         st["pending"] = pend
     try:
@@ -891,6 +975,7 @@ def settle_round(cid, res, ws_dices, pend):
         pred_ok = None if pred is None else (pred == res)
         if pend is not None:
             st["engine"].learn(pend["experts"], pend["p_tai"], res)
+            st["engine"].record_shadow(pend.get("strat", {}), res)
         if pred is not None:
             st["engine"].record(pred, pend["p_side"], res)
         placed = bool(pend and pend["placed"])
@@ -986,10 +1071,17 @@ def start_websocket(cid, token):
             block = risk_block(st, amount)
             if block:
                 st["auto"] = False
+            elif st["engine"].worse_than_chance():
+                block = "PAUSE"
             else:
                 pend["sent"] = True
                 pend["bet"] = amount
                 pred = pend["pred"]
+        if block == "PAUSE":
+            if not pend.get("paused_notice"):
+                pend["paused_notice"] = True
+                pend_status(cid, pend, "⏸ Tạm dừng cược: mô hình đang kém ngẫu nhiên")
+            return
         if block:
             pend_status(cid, pend, f"⛔ Tự tắt: {short(block, 24)}")
             return
