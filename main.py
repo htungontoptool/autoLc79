@@ -293,6 +293,65 @@ def describe_p(p):
     return f"chưa thấy lệch (p={p:.2f})"
 
 
+# ---- Bảng công thức xúc xắc (theo file người dùng cung cấp) ----
+# Khóa: bộ 3 xúc xắc của ván VỪA KẾT THÚC, theo đúng thứ tự tung (ví dụ (1, 2, 4)).
+# Giá trị: phía của ván KẾ TIẾP. Bộ nào không có trong bảng -> không áp dụng công thức (bỏ qua).
+_T, _X = "TAI", "XIU"
+DICE_RULES = {}
+def _add(side, combos):
+    for c in combos:
+        DICE_RULES[tuple(int(ch) for ch in c)] = side
+
+_add(_X, ["111", "112", "121", "211", "113", "131", "311", "122", "212", "221"])  # tổng 3,4,5 mặc định Xỉu ở xử lý dưới
+_add(_T, ["123", "114", "132", "213"])
+_add(_X, ["222", "411"])
+_add(_T, ["124", "133", "331"])
+_add(_X, ["223", "232", "115", "151", "511", "241"])
+_add(_T, ["134", "224", "323"])
+_add(_X, ["116", "125", "233", "143", "251", "512", "611", "431"])
+_add(_T, ["126", "135", "144", "333"])
+_add(_X, ["225", "234", "261", "252", "315", "153"])
+_add(_T, ["136", "145", "244", "343"])
+_add(_X, ["226", "235", "334", "163", "316", "424", "613", "451"])
+_add(_T, ["236", "344", "434"])
+_add(_X, ["632", "263", "326", "155", "461", "146", "614", "452", "254", "353", "533"])
+_add(_T, ["156", "255", "336", "345", "651", "561", "165", "516", "615", "552", "354", "543", "633", "363", "426", "624"])
+_add(_X, ["246", "444"])
+_add(_T, ["346", "355", "445"])
+_add(_X, ["166", "256"])
+_add(_T, ["356", "455"])
+_add(_X, ["266", "446", "554"])
+_add(_T, ["456", "555"])
+_add(_X, ["366", "465"])
+_add(_X, ["556", "466"])
+_add(_T, ["664", "646"])
+_add(_T, ["566"])
+# Tổng 3, 4, 5 (Xỉu) mặc định: mọi bộ có tổng đó đều cho Xỉu
+for _a in range(1, 7):
+    for _b in range(1, 7):
+        for _c in range(1, 7):
+            t = _a + _b + _c
+            if t in (3, 4, 5) and (_a, _b, _c) not in DICE_RULES:
+                DICE_RULES[(_a, _b, _c)] = _X
+
+def dice_rule_pred(dice):
+    """Dự đoán ván kế tiếp theo công thức xúc xắc, hoặc None nếu bộ xúc xắc không có trong bảng."""
+    try:
+        key = tuple(int(x) for x in dice)
+    except Exception:
+        return None
+    if len(key) != 3:
+        return None
+    return DICE_RULES.get(key)
+
+def vn_hour():
+    """Giờ Việt Nam (UTC+7), không phụ thuộc múi giờ máy chủ."""
+    return int(((time.time() + 7 * 3600) % 86400) // 3600)
+
+def in_blackout():
+    """Khung 0h-5h sáng không áp dụng công thức."""
+    return 0 <= vn_hour() < 5
+
 class CauEngine:
     """8 mô hình (tần suất, Markov bậc 1-3, mỗi loại nhanh và chậm), trọng số học theo lỗ."""
 
@@ -325,6 +384,9 @@ class CauEngine:
             ordered = sorted(self.recs.items(), key=lambda kv_: kv_[0])[-MAX_HISTORY:]
             self.recs = dict(ordered)
         return added
+
+    def dices(self):
+        return [v[2] if len(v) > 2 else [] for v in self.recs.values()]
 
     def results(self):
         return [v[0] for v in self.recs.values()]
@@ -371,23 +433,54 @@ class CauEngine:
         return {key: raw[key] / z for key in keys}
 
     MAX_SKIP_STREAK = 2
-    STRATS = ("theo_cau", "dao_cau", "markov1", "tan_suat", "tong_hop")
-    STRAT_NAMES = {"theo_cau": "Theo cầu", "dao_cau": "Đảo cầu", "markov1": "Markov 1",
-                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp"}
+    STRATS = ("theo_cau", "dao_cau", "runlen", "markov1", "markov2", "markov3", "tan_suat", "tong_hop", "cong_thuc")
+    STRAT_NAMES = {"theo_cau": "Bệt", "dao_cau": "1-1", "runlen": "Nhịp theo độ dài",
+                   "markov1": "Markov 1", "markov2": "Markov 2", "markov3": "Markov 3",
+                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp", "cong_thuc": "Công thức xúc xắc"}
     SHADOW_WINDOW = 80
     SHADOW_MIN = 30
 
-    def strategy_preds(self, seq, p_tai):
+    def run_length_pred(self, seq):
+        """Cầu nhịp: học xác suất đổi cầu theo độ dài chuỗi hiện tại (bệt 1, nhịp đôi 2, nhịp ba 3...)."""
+        last = seq[-1]
+        n = len(seq)
+        cnt = {}
+        run = 0
+        for j in range(n - 1):
+            run = run + 1 if j > 0 and seq[j] == seq[j - 1] else 1
+            c = cnt.setdefault(run, [0, 0])
+            c[1] += 1
+            c[0] += 1 if seq[j + 1] != seq[j] else 0
+        r = 0
+        for x in reversed(seq):
+            if x == last:
+                r += 1
+            else:
+                break
+        opposite = XIU if last == TAI else TAI
+        if r in cnt and cnt[r][1] >= 10:
+            p_switch = (cnt[r][0] + 1) / (cnt[r][1] + 2)
+            return opposite if p_switch >= 0.5 else last
+        return last
+
+    def strategy_preds(self, seq, p_tai, dices=None):
         """Dự đoán của từng chiến lược cho ván hiện tại (chỉ dùng dữ liệu đã có)."""
         last = seq[-1]
-        p1, _ = self._estimate(seq, self.HALF_LIVES[1], 1)
-        p0, _ = self._estimate(seq, self.HALF_LIVES[1], 0)
+        hl = self.HALF_LIVES[1]
+        p1, _ = self._estimate(seq, hl, 1)
+        p2, _ = self._estimate(seq, hl, 2)
+        p3, _ = self._estimate(seq, hl, 3)
+        p0, _ = self._estimate(seq, hl, 0)
         return {
             "theo_cau": last,
             "dao_cau": XIU if last == TAI else TAI,
+            "runlen": self.run_length_pred(seq),
             "markov1": TAI if p1 >= 0.5 else XIU,
+            "markov2": TAI if p2 >= 0.5 else XIU,
+            "markov3": TAI if p3 >= 0.5 else XIU,
             "tan_suat": TAI if p0 >= 0.5 else XIU,
             "tong_hop": TAI if p_tai >= 0.5 else XIU,
+            "cong_thuc": dice_rule_pred(dices[-1]) if dices else None,
         }
 
     def pick_strategy(self):
@@ -429,8 +522,10 @@ class CauEngine:
         else:
             post = 1 - beta_prob_above(a_, b_, x0=1 - BREAK_EVEN)
         ev = p_side * WIN_PROFIT - (1 - p_side) * LOSE_LOSS
-        strat = self.strategy_preds(seq, p_tai) if n else {}
+        strat = self.strategy_preds(seq, p_tai, self.dices()) if n else {}
         pick = self.pick_strategy() if n else None
+        if pick and strat.get(pick[0]) is None:
+            pick = None  # chiến lược đang dẫn không áp dụng được cho ván này
 
         out = {
             "side": None, "p": p_tai, "post": post, "n_eff": n_eff, "ev": ev,
@@ -456,6 +551,9 @@ class CauEngine:
 
         need = cfg["post"] + self.extra_post
         block = None
+        if in_blackout():
+            out["reason"] = "Khung 0h-5h không áp dụng công thức"
+            return out
         if pick is None:
             block = "Chưa cách nào vượt ngẫu nhiên"
         elif strat[pick[0]] != side:
@@ -486,6 +584,8 @@ class CauEngine:
         """Ghi nhận từng chiến lược đúng hay sai sau khi biết kết quả."""
         for name, pred in (strat or {}).items():
             dq = self.shadow.setdefault(name, deque(maxlen=self.SHADOW_WINDOW * 2))
+            if pred is None:
+                continue
             dq.append(1 if pred == actual else 0)
 
     def bias_report(self):
