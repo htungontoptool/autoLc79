@@ -352,6 +352,60 @@ def in_blackout():
     """Khung 0h-5h sáng không áp dụng công thức."""
     return 0 <= vn_hour() < 5
 
+# ---- Mẫu cầu từ các file thuật toán người dùng cung cấp ----
+# Mẫu 1: pattern database trong thuattoan123.js. Mẫu khớp (trừ phần tử cuối) -> dự đoán phần tử cuối.
+PATTERN_DB = {
+    "1-1": (["T", "X", "T", "X"], 0.70), "1-2-1": (["T", "X", "X", "T"], 0.65),
+    "2-1-2": (["T", "T", "X", "T", "T"], 0.68), "3-1": (["T", "T", "T", "X"], 0.72),
+    "1-3": (["T", "X", "X", "X"], 0.72), "2-2": (["T", "T", "X", "X"], 0.66),
+    "2-3": (["T", "T", "X", "X", "X"], 0.71), "3-2": (["T", "T", "T", "X", "X"], 0.73),
+    "4-1": (["T", "T", "T", "T", "X"], 0.76), "1-4": (["T", "X", "X", "X", "X"], 0.76),
+}
+
+
+def db_pattern_pred(results):
+    """Mẫu khớp dài nhất trong PATTERN_DB; nếu không có thì thử hai luật động trong thuattoan123.js."""
+    results = ["T" if x == TAI else "X" for x in results]
+    best = None
+    for pat, prob in PATTERN_DB.values():
+        L = len(pat) - 1
+        if len(results) >= L and results[len(results) - L:] == pat[:-1]:
+            cand = (L, prob, pat[-1])
+            if best is None or cand[:2] > best[:2]:
+                best = cand
+    if best is not None:
+        return TAI if best[2] == "T" else XIU
+    l6 = results[-6:]
+    if len(results) >= 6 and l6.count("T") == 4 and l6[-1] == "T":
+        return XIU
+    l8 = results[-8:]
+    if len(results) >= 8 and l8.count("T") >= 6 and l8[-1] == "T":
+        return XIU
+    return None
+
+
+# Mẫu 2: bảng 8 ván. Đếm trực tiếp từ lịch sử của chính bot (không dùng bảng tĩnh,
+# vì bảng tĩnh được đếm trên toàn bộ dữ liệu nên nhìn thấy tương lai và cho kết quả giả).
+def bang8_counts_from(seq):
+    counts = {}
+    for i in range(len(seq) - 8):
+        key = "".join("T" if x == TAI else "X" for x in seq[i:i + 8])
+        c = counts.setdefault(key, [0, 0])
+        c[0 if seq[i + 8] == TAI else 1] += 1
+    return counts
+
+
+def bang8_pred(results, counts):
+    """Ván kế tiếp theo bảng 8 ván; chỉ dùng khi đủ mẫu và không hòa."""
+    if len(results) < 8:
+        return None
+    key = "".join("T" if x == TAI else "X" for x in results[-8:])
+    c = counts.get(key)
+    if not c or c[0] + c[1] < 5 or c[0] == c[1]:
+        return None
+    return TAI if c[0] > c[1] else XIU
+
+
 class CauEngine:
     """8 mô hình (tần suất, Markov bậc 1-3, mỗi loại nhanh và chậm), trọng số học theo lỗ."""
 
@@ -371,6 +425,7 @@ class CauEngine:
         self.loss = {}
         self.skip_streak = 0
         self.shadow = {}
+        self.bang8_counts = {}
 
     def ingest(self, records):
         added = 0
@@ -383,6 +438,7 @@ class CauEngine:
         if added:
             ordered = sorted(self.recs.items(), key=lambda kv_: kv_[0])[-MAX_HISTORY:]
             self.recs = dict(ordered)
+            self.bang8_counts = bang8_counts_from(self.results())
         return added
 
     def dices(self):
@@ -433,10 +489,12 @@ class CauEngine:
         return {key: raw[key] / z for key in keys}
 
     MAX_SKIP_STREAK = 2
-    STRATS = ("theo_cau", "dao_cau", "runlen", "markov1", "markov2", "markov3", "tan_suat", "tong_hop", "cong_thuc")
+    STRATS = ("theo_cau", "dao_cau", "runlen", "markov1", "markov2", "markov3", "tan_suat", "tong_hop",
+              "cong_thuc", "db_mau", "bang8")
     STRAT_NAMES = {"theo_cau": "Bệt", "dao_cau": "1-1", "runlen": "Nhịp theo độ dài",
                    "markov1": "Markov 1", "markov2": "Markov 2", "markov3": "Markov 3",
-                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp", "cong_thuc": "Công thức xúc xắc"}
+                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp", "cong_thuc": "Công thức xúc xắc",
+                   "db_mau": "Mẫu cầu", "bang8": "Bảng 8 ván"}
     SHADOW_WINDOW = 80
     SHADOW_MIN = 30
 
@@ -481,6 +539,8 @@ class CauEngine:
             "tan_suat": TAI if p0 >= 0.5 else XIU,
             "tong_hop": TAI if p_tai >= 0.5 else XIU,
             "cong_thuc": dice_rule_pred(dices[-1]) if dices else None,
+            "db_mau": db_pattern_pred(seq),
+            "bang8": bang8_pred(seq, self.bang8_counts),
         }
 
     def pick_strategy(self):
@@ -712,64 +772,91 @@ def risk_block(st, amount):
 # ============================================================
 # NỘI DUNG CÁC Ô
 # ============================================================
+RULE = "─" * 30
+
+
+def confidence_label(c):
+    if c >= 0.90:
+        return "rất mạnh"
+    if c >= 0.75:
+        return "mạnh"
+    if c >= 0.55:
+        return "vừa"
+    return "yếu"
+
+
 def prediction_text(sid, info, st):
     mode = MODES[st["mode"]]
     recent = trail(st["engine"].results(), 10) or "—"
-    lines = [f"🎯 Phiên #{sid} · {mode['label']}", ""]
+    eng = st["engine"]
+    head = f"🎯 PHIÊN #{sid}  ·  {mode['label'].upper()}"
+    lines = [head, RULE]
     if info["side"] is None:
-        lines += ["Bỏ qua phiên này", info["reason"]]
+        lines += ["⏸ BỎ QUA PHIÊN NÀY", f"Lý do   {info['reason']}", RULE]
     else:
         side = info["side"]
         p_side = info["p"] if side == TAI else 1 - info["p"]
         bet = current_bet(st)
-        x2 = f"gấp đôi, cấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "mức gốc"
-        gate = "không cần" if mode.get("never_skip") else f"ngưỡng {mode['post']:.0%}"
-        lines.append(f"Đánh {side_label(side)} {side_icon(side)}")
-        lines.append("")
+        gauge = bar(info["post"], 10)
         lines.append(kv([
-            ("Xác suất", f"{p_side:.1%}  {bar(p_side)}"),
-            ("Độ chắc", f"{info['post']:.1%}  {gate}"),
-            ("Dữ liệu", f"{info['n_eff']:.1f} phiên"),
-            ("Cách đoán", info["ctx"]),
+            ("ĐÁNH", f"{side_label(side)} {side_icon(side)}"),
+            ("CÁCH", info["ctx"] if not info["ctx"].startswith("Chưa") else "Tổng hợp"),
+            ("XÁC SUẤT", f"{p_side:.1%}"),
+            ("ĐỘ CHẮC", f"{info['post']:.1%} {gauge}"),
+            ("TÍN HIỆU", confidence_label(info["post"])),
+            ("MẪU", f"{info['n_eff']:.0f} ván hiệu dụng"),
         ]))
-        lines.append("")
+        lines.append(RULE)
+        x2 = f"gấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "gốc"
         lines.append(kv([
-            ("Cược", f"{fmt(bet)}  ·  {x2}"),
-            ("Nếu thắng", f"{signed(bet * WIN_PROFIT)}  (x{WIN_PROFIT:g})"),
-            ("Nếu thua", f"-{fmt(bet * LOSE_LOSS)}"),
-            ("Kỳ vọng", signed(bet * info["ev"])),
+            ("CƯỢC", f"{fmt(bet)} ({x2})"),
+            ("THẮNG", f"{signed(bet * WIN_PROFIT)}  x{WIN_PROFIT:g}"),
+            ("THUA", f"-{fmt(bet * LOSE_LOSS)}  x{LOSE_LOSS:g}"),
+            ("KỲ VỌNG", signed(bet * info["ev"])),
         ]))
+        lines.append(RULE)
     lr = st.get("last_result")
     if lr and lr.get("pred") is not None:
-        verdict = "đúng ✅" if lr["pred_ok"] else "sai ❌"
+        verdict = "ĐÚNG ✅" if lr["pred_ok"] else "SAI ❌"
         extra = ""
         if lr["placed"]:
-            extra = f", cược {'thắng' if lr['won'] else 'thua'} {signed(lr['delta'])}"
-        lines += ["", f"Phiên #{lr['sid']} bot đoán {side_label(lr['pred'])}: {verdict}{extra}"]
-    lines += ["", recent]
+            extra = f" · cược {'THẮNG' if lr['won'] else 'THUA'} {signed(lr['delta'])}"
+        lines.append(f"↩ #{lr['sid']}: đoán {side_label(lr['pred'])} · {verdict}")
+        if extra:
+            lines.append(f"  {extra.strip(' ·')}")
+    k, n = eng.recent_hits()
+    if n:
+        lines.append(f"📊 Gần đây {k}/{n} đúng ({k / n:.0%})")
+    lines.append(f"🧾 {recent}")
     return "\n".join(lines)
 
 
 def result_text(rec, st):
+    eng = st["engine"]
     total = f" · tổng {rec['total']}" if rec.get("total") is not None else ""
-    lines = [f"🎲 Kết quả phiên #{rec['sid']}",
-             f"{dice_faces(rec['dice'])}{total}  →  {side_label(rec['res'])}", ""]
+    lines = [f"🎲 KẾT QUẢ PHIÊN #{rec['sid']}",
+             f"{dice_faces(rec['dice'])}{total} → {side_label(rec['res'])}", RULE]
+    rows = []
     if rec["pred"] is None:
-        lines.append("Phiên này bot không đoán.")
-    elif rec["pred_ok"]:
-        lines.append(f"Bot đoán {side_label(rec['pred'])}  →  đúng ✅")
+        rows.append(("DỰ ĐOÁN", "không có"))
     else:
-        lines.append(f"Bot đoán {side_label(rec['pred'])}  →  sai ❌")
+        rows.append(("DỰ ĐOÁN", f"{side_label(rec['pred'])} {'✅ ĐÚNG' if rec['pred_ok'] else '❌ SAI'}"))
     if rec["placed"]:
-        verdict = "thắng ✅" if rec["won"] else "thua ❌"
-        lines.append(f"Bạn cược {fmt(rec['bet'])}  →  {verdict} {signed(rec['delta'])}")
+        rows.append(("CƯỢC", f"{fmt(rec['bet'])} → {'THẮNG' if rec['won'] else 'THUA'} {signed(rec['delta'])}"))
     else:
-        lines.append("Phiên này chưa đặt cược.")
-    lines += ["", kv([
-        ("Lãi/lỗ phiên", signed(st["profit"])),
-        ("Thắng liên", str(st["win_streak"])),
-        ("Thua liên", str(st["lose_streak"])),
-    ]), "", trail(st["engine"].results(), 10) or "—"]
+        rows.append(("CƯỢC", "không đặt"))
+    lines.append(kv(rows))
+    lines.append(RULE)
+    total_bets = st["total_win"] + st["total_lose"]
+    wr = st["total_win"] / total_bets * 100 if total_bets else 0
+    lines.append(kv([
+        ("LÃI/LỖ", signed(st["profit"])),
+        ("THẮNG LIÊN", str(st["win_streak"])),
+        ("THUA LIÊN", str(st["lose_streak"])),
+        ("TỶ LỆ THẮNG", f"{wr:.1f}% ({st['total_win']}/{total_bets})"),
+        ("ĐOÁN ĐÚNG", f"{eng.accuracy():.1f}% ({len(eng.perf)} lần)"),
+    ]))
+    lines += [RULE, f"🧾 {trail(eng.results(), 10) or '—'}"]
     return "\n".join(lines)
 
 
