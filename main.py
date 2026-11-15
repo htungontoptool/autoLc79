@@ -785,78 +785,73 @@ def confidence_label(c):
     return "yếu"
 
 
+def hx(v):
+    return html.escape(str(v), quote=False)
+
+
 def prediction_text(sid, info, st):
+    """Thẻ dự đoán: tiêu đề và số liệu in đậm, mô tả nhạt, gọn."""
     mode = MODES[st["mode"]]
     recent = trail(st["engine"].results(), 10) or "—"
     eng = st["engine"]
-    head = f"🎯 PHIÊN #{sid}  ·  {mode['label'].upper()}"
-    lines = [head, RULE]
+    head = f"<b>🎯 Phiên #{hx(sid)}</b>  ·  <b>{hx(mode['label'])}</b>"
+    lines = [head, ""]
     if info["side"] is None:
-        lines += ["⏸ BỎ QUA PHIÊN NÀY", f"Lý do   {info['reason']}", RULE]
+        lines += ["<b>⏸ Bỏ qua phiên này</b>", f"<i>{hx(info['reason'])}</i>"]
     else:
         side = info["side"]
         p_side = info["p"] if side == TAI else 1 - info["p"]
         bet = current_bet(st)
-        gauge = bar(info["post"], 10)
-        lines.append(kv([
-            ("ĐÁNH", f"{side_label(side)} {side_icon(side)}"),
-            ("CÁCH", info["ctx"] if not info["ctx"].startswith("Chưa") else "Tổng hợp"),
-            ("XÁC SUẤT", f"{p_side:.1%}"),
-            ("ĐỘ CHẮC", f"{info['post']:.1%} {gauge}"),
-            ("TÍN HIỆU", confidence_label(info["post"])),
-            ("MẪU", f"{info['n_eff']:.0f} ván hiệu dụng"),
-        ]))
-        lines.append(RULE)
-        x2 = f"gấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "gốc"
-        lines.append(kv([
-            ("CƯỢC", f"{fmt(bet)} ({x2})"),
-            ("THẮNG", f"{signed(bet * WIN_PROFIT)}  x{WIN_PROFIT:g}"),
-            ("THUA", f"-{fmt(bet * LOSE_LOSS)}  x{LOSE_LOSS:g}"),
-            ("KỲ VỌNG", signed(bet * info["ev"])),
-        ]))
-        lines.append(RULE)
+        x2 = f"gấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "mức gốc"
+        ctx = info["ctx"] if not info["ctx"].startswith("Chưa") else "Tổng hợp"
+        lines.append(f"<b>Đánh {hx(side_label(side))}</b> {side_icon(side)}")
+        lines.append(f"<blockquote>Xác suất <b>{p_side:.1%}</b>  ·  độ chắc <b>{info['post']:.1%}</b>\n"
+                     f"Tín hiệu <b>{hx(confidence_label(info['post']))}</b>  ·  cách <b>{hx(ctx)}</b>\n"
+                     f"<i>Dữ liệu {info['n_eff']:.0f} ván hiệu dụng</i></blockquote>")
+        lines.append("")
+        lines.append(f"<b>Cược {fmt(bet)}</b>  <i>({hx(x2)})</i>")
+        lines.append(f"<blockquote>Thắng <b>{signed(bet * WIN_PROFIT)}</b>  <i>x{WIN_PROFIT:g}</i>\n"
+                     f"Thua <b>-{fmt(bet * LOSE_LOSS)}</b>  <i>x{LOSE_LOSS:g}</i>\n"
+                     f"Kỳ vọng <b>{signed(bet * info['ev'])}</b></blockquote>")
     lr = st.get("last_result")
     if lr and lr.get("pred") is not None:
-        verdict = "ĐÚNG ✅" if lr["pred_ok"] else "SAI ❌"
+        verdict = "đúng ✅" if lr["pred_ok"] else "sai ❌"
         extra = ""
         if lr["placed"]:
-            extra = f" · cược {'THẮNG' if lr['won'] else 'THUA'} {signed(lr['delta'])}"
-        lines.append(f"↩ #{lr['sid']}: đoán {side_label(lr['pred'])} · {verdict}")
-        if extra:
-            lines.append(f"  {extra.strip(' ·')}")
+            extra = f"  ·  cược {'thắng' if lr['won'] else 'thua'} {signed(lr['delta'])}"
+        lines += ["", f"<i>Phiên #{hx(lr['sid'])} bot đoán {hx(side_label(lr['pred']))}: {verdict}{hx(extra)}</i>"]
     k, n = eng.recent_hits()
     if n:
-        lines.append(f"📊 Gần đây {k}/{n} đúng ({k / n:.0%})")
-    lines.append(f"🧾 {recent}")
+        lines.append(f"<i>Gần đây {k}/{n} đúng ({k / n:.0%})</i>")
+    lines.append(recent)
     return "\n".join(lines)
 
 
 def result_text(rec, st):
+    """Thẻ kết quả: kết quả và số liệu in đậm, mô tả nhạt."""
     eng = st["engine"]
-    total = f" · tổng {rec['total']}" if rec.get("total") is not None else ""
-    lines = [f"🎲 KẾT QUẢ PHIÊN #{rec['sid']}",
-             f"{dice_faces(rec['dice'])}{total} → {side_label(rec['res'])}", RULE]
-    rows = []
+    total = f"  ·  tổng {rec['total']}" if rec.get("total") is not None else ""
+    lines = [f"<b>🎲 Kết quả phiên #{hx(rec['sid'])}</b>",
+             f"{hx(dice_faces(rec['dice']))}{total}  →  <b>{hx(side_label(rec['res']))}</b>", ""]
     if rec["pred"] is None:
-        rows.append(("DỰ ĐOÁN", "không có"))
+        det = "<i>Phiên này bot không đoán.</i>"
+    elif rec["pred_ok"]:
+        det = f"Bot đoán <b>{hx(side_label(rec['pred']))}</b>  →  <b>đúng ✅</b>"
     else:
-        rows.append(("DỰ ĐOÁN", f"{side_label(rec['pred'])} {'✅ ĐÚNG' if rec['pred_ok'] else '❌ SAI'}"))
+        det = f"Bot đoán <b>{hx(side_label(rec['pred']))}</b>  →  <b>sai ❌</b>"
     if rec["placed"]:
-        rows.append(("CƯỢC", f"{fmt(rec['bet'])} → {'THẮNG' if rec['won'] else 'THUA'} {signed(rec['delta'])}"))
+        verdict = "thắng ✅" if rec["won"] else "thua ❌"
+        cuoc = f"Bạn cược <b>{fmt(rec['bet'])}</b>  →  <b>{verdict} {signed(rec['delta'])}</b>"
     else:
-        rows.append(("CƯỢC", "không đặt"))
-    lines.append(kv(rows))
-    lines.append(RULE)
+        cuoc = "<i>Phiên này chưa đặt cược.</i>"
     total_bets = st["total_win"] + st["total_lose"]
     wr = st["total_win"] / total_bets * 100 if total_bets else 0
-    lines.append(kv([
-        ("LÃI/LỖ", signed(st["profit"])),
-        ("THẮNG LIÊN", str(st["win_streak"])),
-        ("THUA LIÊN", str(st["lose_streak"])),
-        ("TỶ LỆ THẮNG", f"{wr:.1f}% ({st['total_win']}/{total_bets})"),
-        ("ĐOÁN ĐÚNG", f"{eng.accuracy():.1f}% ({len(eng.perf)} lần)"),
-    ]))
-    lines += [RULE, f"🧾 {trail(eng.results(), 10) or '—'}"]
+    lines += [f"<blockquote>{det}\n{cuoc}</blockquote>",
+              f"<blockquote>Lãi/lỗ phiên <b>{signed(st['profit'])}</b>\n"
+              f"Thắng liên <b>{st['win_streak']}</b>  ·  Thua liên <b>{st['lose_streak']}</b>\n"
+              f"Tỷ lệ thắng <b>{wr:.1f}%</b> <i>({st['total_win']}/{total_bets})</i>\n"
+              f"Đoán đúng <b>{eng.accuracy():.1f}%</b> <i>({len(eng.perf)} lần)</i></blockquote>",
+              trail(eng.results(), 10) or "—"]
     return "\n".join(lines)
 
 
@@ -936,49 +931,35 @@ def lichsu_text(rows, n):
     return "\n".join(lines)
 
 
-START_TEXT = """🎰 Auto Cược LC79
-🎯 Dự đoán Tài/Xỉu, tự động cược
+START_HTML = """<b>🎰 AUTO CƯỢC LC79</b>
+Dự đoán Tài/Xỉu và tự động cược cho bạn.
 
-─── 🔐 Tài khoản ───
-🔑 /dangnhap TK MK
-   đăng nhập, bắt đầu theo dõi
-⏹️ /dung
-   ngắt kết nối
+<b>🔐 Tài khoản</b>
+<blockquote><b>/dangnhap TK MK</b> - đăng nhập, bắt đầu theo dõi
+<b>/dung</b> - ngắt kết nối an toàn</blockquote>
 
-─── 🎲 Đặt cược ───
-⚡ /tudong bat 10k
-   bật tự động, 10k mỗi phiên
-🛑 /tudong tat
-   tắt tự động
-💸 /x2 bat
-   thua thì gấp đôi, tối đa 6 lần
-↩️ /x2 tat
-   tắt gấp đôi
+<b>⚡ Đặt cược</b>
+<blockquote><b>/tudong bat 10k</b> - bật tự động, 10k mỗi phiên
+<b>/tudong tat</b> - tắt tự động
+<b>/x2 bat</b> - thua thì gấp đôi, tối đa 6 lần
+<b>/x2 tat</b> - tắt gấp đôi</blockquote>
 
-─── ⚙️ Cài đặt ───
-📋 /caidat
-   xem cấu hình hiện tại
-🔧 /caidat cuoc=10k sl=1m
-   sw=5m limit=50m
-   mode=maohiem thongbao=bat
+<b>⚙️ Cài đặt</b>
+<blockquote><b>/caidat</b> - xem cấu hình hiện tại
+<b>/caidat cuoc=10k sl=1m sw=5m</b> - đổi nhiều mục cùng lúc
+limit=50m mode=maohiem thongbao=bat</blockquote>
 
-─── 📊 Theo dõi ───
-💰 /thongtin
-   số dư, thắng thua, độ chính xác
-📜 /lichsu 10
-   10 phiên gần nhất
-🧪 /kiemthu
-   thử lại thuật toán trên lịch sử
-📖 /start
-   xem lại hướng dẫn này
+<b>📊 Theo dõi</b>
+<blockquote><b>/thongtin</b> - số dư, thắng thua, độ chính xác
+<b>/lichsu 10</b> - 10 phiên gần nhất</blockquote>
 
-─── 🧭 Chế độ ───
-🟢 antoan   chắc từ 75%
-🟡 canbang  chắc từ 55%
-🔴 maohiem  đánh mọi phiên
-⏭️ antoan, canbang không bỏ quá
-   2 phiên liên tiếp
-"""
+<b>🧭 Chế độ</b>
+<blockquote>🟢 <b>antoan</b> - chỉ cược khi chắc từ 75%
+🟡 <b>canbang</b> - chỉ cược khi chắc từ 55%
+🔴 <b>maohiem</b> - đánh mọi phiên</blockquote>
+
+<i>antoan và canbang không bỏ quá 2 phiên liên tiếp.
+Tài/Xỉu vốn ngẫu nhiên, không ai đảm bảo thắng.</i>"""
 
 
 # ============================================================
@@ -1077,7 +1058,7 @@ def open_round(cid, sid):
                 "base": text, "status": [], "msg_id": None, "done": False}
         st["pending"] = pend
     try:
-        sent = bot.send_message(cid, box(text), parse_mode="HTML")
+        sent = bot.send_message(cid, text, parse_mode="HTML")
         with state_lock:
             pend["msg_id"] = sent.message_id
     except Exception as e:
@@ -1116,12 +1097,12 @@ def poll_round(cid, arr):
 def render_pending(pend):
     if not pend["status"]:
         return pend["base"]
-    return pend["base"] + "\n\n── Trạng thái ──\n" + "\n".join(pend["status"])
+    return pend["base"] + "\n\n<b>Trạng thái</b>\n" + "\n".join(hx(x) for x in pend["status"])
 
 
 def card_edit(cid, mid, text):
     try:
-        bot.edit_message_text(box(text), cid, mid, parse_mode="HTML")
+        bot.edit_message_text(text, cid, mid, parse_mode="HTML")
     except Exception as e:
         if "not modified" not in str(e):
             log.warning("Không sửa được tin %s: %s", mid, e)
@@ -1192,7 +1173,7 @@ def settle_round(cid, res, ws_dices, pend):
     if mid:
         card_edit(cid, mid, text)
     else:
-        say(cid, text, force=True)
+        bot.send_message(cid, text, parse_mode="HTML")
 
 
 def handle_ack(cid, data, pend):
@@ -1339,7 +1320,7 @@ def stop_user(cid):
 # ============================================================
 @bot.message_handler(commands=["start", "help"])
 def cmd_start(m):
-    answer(m, START_TEXT)
+    bot.reply_to(m, START_HTML, parse_mode="HTML")
 
 
 @bot.message_handler(commands=["dangnhap"])
