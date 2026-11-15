@@ -406,6 +406,64 @@ def bang8_pred(results, counts):
     return TAI if c[0] > c[1] else XIU
 
 
+def streak_break_rate(seq, L):
+    """Sau một bệt đã dài ≥ L, bao nhiêu lần kết quả tiếp tục bệt và bao nhiêu lần bị bẻ."""
+    cont = brk = 0
+    # run_len[i] = độ dài bệt kết thúc tại i
+    run_len = [0] * len(seq)
+    for i in range(len(seq)):
+        run_len[i] = run_len[i - 1] + 1 if i > 0 and seq[i] == seq[i - 1] else 1
+    for i in range(1, len(seq)):
+        if run_len[i - 1] >= L:
+            if seq[i] == seq[i - 1]:
+                cont += 1
+            else:
+                brk += 1
+    return cont, brk
+
+
+def bet_dai_pred(seq, min_run=3, min_samples=20, edge=0.55):
+    """Bẻ hay theo bệt dài: dựa trên tần suất bệt tiếp/bị bẻ đã quan sát với độ dài bệt hiện tại."""
+    if len(seq) < 10:
+        return None
+    L = 1
+    for i in range(len(seq) - 1, 0, -1):
+        if seq[i] == seq[i - 1]:
+            L += 1
+        else:
+            break
+    if L < min_run:
+        return None
+    cont, brk = streak_break_rate(seq, L)
+    n = cont + brk
+    if n < min_samples:
+        return None
+    last = seq[-1]
+    opposite = XIU if last == TAI else TAI
+    if brk / n >= edge:
+        return opposite
+    if cont / n >= edge:
+        return last
+    return None
+
+
+def runs_test(seq):
+    """Kiểm định chạy (Wald-Wolfowitz): chuỗi có ngẫu nhiên không. Trả về (p, số chạy, kỳ vọng)."""
+    n1 = sum(1 for x in seq if x == TAI)
+    n2 = len(seq) - n1
+    n = n1 + n2
+    if n1 == 0 or n2 == 0 or n < 20:
+        return None
+    R = 1 + sum(1 for i in range(1, n) if seq[i] != seq[i - 1])
+    mu = 2 * n1 * n2 / n + 1
+    var = 2 * n1 * n2 * (2 * n1 * n2 - n) / (n * n * (n - 1))
+    if var <= 0:
+        return None
+    z = (R - mu) / math.sqrt(var)
+    p = math.erfc(abs(z) / math.sqrt(2))
+    return p, R, mu
+
+
 class CauEngine:
     """8 mô hình (tần suất, Markov bậc 1-3, mỗi loại nhanh và chậm), trọng số học theo lỗ."""
 
@@ -490,11 +548,11 @@ class CauEngine:
 
     MAX_SKIP_STREAK = 2
     STRATS = ("theo_cau", "dao_cau", "runlen", "markov1", "markov2", "markov3", "tan_suat", "tong_hop",
-              "cong_thuc", "db_mau", "bang8")
+              "cong_thuc", "db_mau", "bang8", "bet_dai")
     STRAT_NAMES = {"theo_cau": "Bệt", "dao_cau": "1-1", "runlen": "Nhịp theo độ dài",
                    "markov1": "Markov 1", "markov2": "Markov 2", "markov3": "Markov 3",
                    "tan_suat": "Tần suất", "tong_hop": "Tổng hợp", "cong_thuc": "Công thức xúc xắc",
-                   "db_mau": "Mẫu cầu", "bang8": "Bảng 8 ván"}
+                   "db_mau": "Mẫu cầu", "bang8": "Bảng 8 ván", "bet_dai": "Bẻ bệt dài"}
     SHADOW_WINDOW = 80
     SHADOW_MIN = 30
 
@@ -541,6 +599,7 @@ class CauEngine:
             "cong_thuc": dice_rule_pred(dices[-1]) if dices else None,
             "db_mau": db_pattern_pred(seq),
             "bang8": bang8_pred(seq, self.bang8_counts),
+            "bet_dai": bet_dai_pred(seq),
         }
 
     def pick_strategy(self):
@@ -855,15 +914,52 @@ def result_text(rec, st):
     return "\n".join(lines)
 
 
+def line(icon, label, value):
+    return f"{icon} {hx(label)}  <b>{hx(value)}</b>"
+
+
+def card(icon, title, rows=None, note=None, footer=None):
+    out = [f"{icon} <b>{hx(title)}</b>"]
+    if rows:
+        out.append("<blockquote>" + "\n".join(rows) + "</blockquote>")
+    if note:
+        out.append(f"<i>{hx(note)}</i>")
+    if footer:
+        out += ["", footer]
+    return "\n".join(out)
+
+
+def reply(m, text):
+    bot.reply_to(m, text, parse_mode="HTML")
+
+
+def edit_html(text, cid, mid):
+    bot.edit_message_text(text, cid, mid, parse_mode="HTML")
+
+
+def setup_rows(st):
+    return [
+        line("💰", "Cược gốc (cuoc)", fmt(st["base_bet"])),
+        line("🛑", "Dừng lỗ (sl)", f"{fmt(st['stop_loss'])}  ·  0 = tắt"),
+        line("🏆", "Dừng lãi (sw)", f"{fmt(st['stop_win'])}  ·  0 = tắt"),
+        line("📅", "Giới hạn ngày (limit)", f"{fmt(st['daily_limit'])}  ·  0 = tắt"),
+        line("🧭", "Chế độ (mode)", st["mode"]),
+        line("🔔", "Thông báo (thongbao)", "bật" if st["notify"] else "tắt"),
+    ]
+
+
 def setup_text(st):
-    return kv([
-        ("cuoc", f"{fmt(st['base_bet'])}"),
-        ("sl", f"{fmt(st['stop_loss'])}  (0 = tắt)"),
-        ("sw", f"{fmt(st['stop_win'])}  (0 = tắt)"),
-        ("limit", f"{fmt(st['daily_limit'])}  (0 = tắt)"),
-        ("mode", f"{st['mode']}  (antoan / canbang / maohiem)"),
-        ("thongbao", "bật" if st["notify"] else "tắt"),
-    ])
+    return card("⚙️", "Cài đặt hiện tại", setup_rows(st),
+                footer="✏️ Đổi nhanh: <code>/caidat cuoc=10k mode=canbang</code>")
+
+
+def _runs_text(seq):
+    r = runs_test(seq[-200:])
+    if r is None:
+        return "chưa đủ dữ liệu"
+    p, R, mu = r
+    verdict = "bất thường ⚠️" if p < 0.05 else "bình thường ✅"
+    return f"p={p:.3f} · {verdict}"
 
 
 def account_text(st):
@@ -871,64 +967,59 @@ def account_text(st):
     total = st["total_win"] + st["total_lose"]
     wr = st["total_win"] / total * 100 if total else 0
     ll = eng.logloss()
-    ll_txt = f"{ll:.3f}  (đoán ngẫu nhiên 0.693)" if ll is not None else "chưa đủ dữ liệu"
+    ll_txt = f"{ll:.3f}  (ngẫu nhiên 0.693)" if ll is not None else "chưa đủ dữ liệu"
     x2 = f"bật, cấp {st['mart_level']}/{MAX_MARTINGALE_LEVEL}" if st["martingale"] else "tắt"
-    p_face, p_tx = eng.bias_report()
+    head = f"👤 <b>Tài khoản {hx(st['nickname'] or '—')}</b>"
+    rows1 = [
+        line("🔌", "Kết nối", "đang chạy" if st["running"] else "chưa đăng nhập"),
+        line("🤖", "Tự động", "đang bật" if st["auto"] else "đang tắt"),
+        line("🎰", "Gấp đôi", x2),
+        line("🧭", "Chế độ", MODES[st["mode"]]["label"]),
+        line("💰", "Cược gốc", fmt(st["base_bet"])),
+        line("🎯", "Cược tới", fmt(current_bet(st))),
+        line("💳", "Số dư", fmt(st["balance"])),
+        line("📈", "Lãi/lỗ", signed(st["profit"])),
+    ]
+    rows2 = [
+        line("🏆", "Thắng/thua", f"{st['total_win']} / {st['total_lose']}  ({wr:.1f}%)"),
+        line("🎯", "Đoán đúng", f"{eng.accuracy():.1f}%  trên {len(eng.perf)} phiên"),
+        line("📐", "ROI kỳ vọng", f"{eng.expected_roi() * 100:+.1f}% mỗi cược"),
+        line("📉", "Sai số", ll_txt),
+        line("🧬", "Tính ngẫu nhiên", _runs_text(eng.results())),
+        line("📚", "Đã nạp", f"{len(eng.recs)} phiên · bỏ qua {eng.skips}"),
+    ]
     return "\n".join([
-        f"👤 Tài khoản {st['nickname'] or '—'}",
-        "",
-        kv([
-            ("Kết nối", "đang chạy" if st["running"] else "chưa đăng nhập"),
-            ("Tự động", "đang bật" if st["auto"] else "đang tắt"),
-            ("Gấp đôi", x2),
-            ("Chế độ", MODES[st["mode"]]["label"]),
-            ("Cược gốc", fmt(st["base_bet"])),
-            ("Cược tới", fmt(current_bet(st))),
-            ("Số dư", fmt(st["balance"])),
-            ("Lãi/lỗ", signed(st["profit"])),
-        ]),
-        "",
-        kv([
-            ("Thắng/thua", f"{st['total_win']} / {st['total_lose']}  ({wr:.1f}%)"),
-            ("Đoán đúng", f"{eng.accuracy():.1f}%  trên {len(eng.perf)} phiên"),
-            ("Đánh giá", danh_gia(*eng.recent_hits())),
-            ("ROI kỳ vọng", f"{eng.expected_roi() * 100:+.1f}% mỗi cược"),
-            ("Sai số", ll_txt),
-            ("Hòa vốn", f"{BREAK_EVEN:.1%}  (trả {WIN_PROFIT:g})"),
-            ("Lệch xúc xắc", describe_p(p_face)),
-            ("Lệch Tài/Xỉu", describe_p(p_tx)),
-            ("Đã nạp", f"{len(eng.recs)} phiên, bỏ qua {eng.skips}"),
-        ]),
-        "",
+        head, "",
+        "<blockquote>" + "\n".join(rows1) + "</blockquote>",
+        "<blockquote>" + "\n".join(rows2) + "</blockquote>",
         trail(eng.results(), 10) or "—",
     ])
 
 
 def lichsu_text(rows, n):
     recent = rows[-n:]
-    lines = [f"📜 Lịch sử {len(recent)} phiên gần nhất", ""]
-    lines.append(f"{'Phiên':<9} {'KQ':<4} {'Đoán':<7} {'Cược':<8} Lãi")
+    lines_ = []
     for r in reversed(recent):
-        if r["pred"] is None:
-            pred = "—"
-        else:
-            pred = ("✅" if r["pred_ok"] else "❌") + side_label(r["pred"])
-        bet = "—" if not r["placed"] else fmt(r["bet"])
-        pl = "—" if not r["placed"] else signed(r["delta"])
-        lines.append(f"{str(r['sid']):<9} {side_label(r['res']):<4} {pred:<7} {bet:<8} {pl}")
+        icon = "⏭️" if r["pred"] is None else ("✅" if r["pred_ok"] else "❌")
+        pred = "không đoán" if r["pred"] is None else f"đoán {side_label(r['pred'])}"
+        bet = "không cược" if not r["placed"] else f"cược {fmt(r['bet'])} {signed(r['delta'])}"
+        lines_.append(f"{icon} <b>#{hx(r['sid'])}</b>  KQ {hx(side_label(r['res']))}  ·  {hx(pred)}  ·  {hx(bet)}")
     scored = [r for r in rows if r["pred"] is not None]
     hit = sum(1 for r in scored if r["pred_ok"])
     placed = [r for r in rows if r["placed"]]
     wins = sum(1 for r in placed if r["won"])
     profit = sum(r["delta"] for r in placed)
     pct = hit / len(scored) * 100 if scored else 0
-    lines += ["", kv([
-        ("Đoán đúng", f"{hit} / {len(scored)}  ({pct:.1f}%)"),
-        ("Đã cược", f"{len(placed)} lần, thắng {wins}, thua {len(placed) - wins}"),
-        ("Đánh giá", danh_gia(hit, len(scored))),
-        ("Lãi/lỗ", signed(profit)),
-    ])]
-    return "\n".join(lines)
+    summary = [
+        line("🎯", "Đoán đúng", f"{hit} / {len(scored)}  ({pct:.1f}%)"),
+        line("💵", "Đã cược", f"{len(placed)} lần · 🏆 {wins} thắng · 💥 {len(placed) - wins} thua"),
+        line("📈", "Lãi/lỗ", signed(profit)),
+    ]
+    return "\n".join([
+        f"📜 <b>Lịch sử {len(recent)} phiên gần nhất</b>", "",
+        "<blockquote>" + "\n".join(lines_) + "</blockquote>",
+        "<blockquote>" + "\n".join(summary) + "</blockquote>",
+    ])
 
 
 START_HTML = """<b>🎰 AUTO CƯỢC LC79</b>
@@ -1328,11 +1419,13 @@ def cmd_dangnhap(m):
     cid = m.chat.id
     p = m.text.split()
     if len(p) != 3:
-        return answer(m, "Nhập theo mẫu:\n/dangnhap TK MK")
-    msg = bot.reply_to(m, box("Đang đăng nhập, chờ chút nhé..."), parse_mode="HTML")
+        return reply(m, card("🔐", "Đăng nhập", [line("📝", "Cú pháp", "/dangnhap TK MK")],
+                             note="Nhập tài khoản và mật khẩu game của bạn."))
+    msg = bot.reply_to(m, "⏳ <i>Đang đăng nhập, chờ chút nhé…</i>", parse_mode="HTML")
     res = login_and_get_token(p[1], p[2])
     if "_error" in res:
-        return edit(f"❌ Đăng nhập chưa được.\n{res['_error']}", cid, msg.message_id)
+        return edit_html(card("❌", "Đăng nhập chưa được", [line("⚠️", "Lý do", res["_error"])],
+                              footer="🔁 Thử lại: <code>/dangnhap TK MK</code>"), cid, msg.message_id)
 
     st = get_state(cid)
     stop_user(cid)
@@ -1344,11 +1437,11 @@ def cmd_dangnhap(m):
         st["login_at"] = time.time()
         st["gen"] += 1
         gen = st["gen"]
-    edit("✅ Đăng nhập xong rồi.\n" + kv([
-        ("Tài khoản", res["nickname"]),
-        ("Số dư", fmt(res["money"])),
-        ("Nạp phiên", f"mỗi {SYNC_INTERVAL} giây"),
-    ]) + "\n\nBật tự động bằng /tudong bat 10k nếu muốn.", cid, msg.message_id)
+    edit_html(card("✅", "Đăng nhập thành công", [
+        line("👤", "Tài khoản", res["nickname"]),
+        line("💳", "Số dư", fmt(res["money"])),
+        line("🔄", "Nạp phiên", f"mỗi {SYNC_INTERVAL} giây"),
+    ], footer="⚡ Bật tự động: <code>/tudong bat 10k</code>"), cid, msg.message_id)
     threading.Thread(target=start_websocket, args=(cid, res["token"]), daemon=True).start()
     threading.Thread(target=sync_loop, args=(cid, gen), daemon=True).start()
 
@@ -1356,7 +1449,11 @@ def cmd_dangnhap(m):
 @bot.message_handler(commands=["dung"])
 def cmd_dung(m):
     stop_user(m.chat.id)
-    answer(m, "⏹️ Đã ngắt kết nối.\nBot ngừng nạp phiên, tắt tự động và gấp đôi.")
+    reply(m, card("⏹️", "Đã ngắt kết nối", [
+        line("🔌", "Nạp phiên", "đã dừng"),
+        line("🛑", "Tự động", "đã tắt"),
+        line("🎰", "Gấp đôi", "đã tắt"),
+    ]))
 
 
 @bot.message_handler(commands=["tudong"])
@@ -1365,29 +1462,33 @@ def cmd_tudong(m):
     st = get_state(cid)
     p = m.text.split()
     if not st["running"]:
-        return answer(m, "🔒 Bạn chưa đăng nhập.\nGõ /dangnhap TK MK trước nhé.")
+        return reply(m, card("🔒", "Chưa đăng nhập", note="Đăng nhập trước: /dangnhap TK MK"))
     action = norm(p[1]) if len(p) > 1 else ""
     if action not in ("bat", "tat"):
-        return answer(m, "Gõ /tudong bat 10k hoặc /tudong tat.")
+        return reply(m, card("🤖", "Tự động cược", [
+            line("▶️", "Bật", "/tudong bat 10k"),
+            line("⏹️", "Tắt", "/tudong tat"),
+        ]))
     if action == "tat":
         st["auto"] = False
-        return answer(m, "🛑 Đã tắt tự động.")
+        return reply(m, card("🛑", "Đã tắt tự động"))
     if len(p) > 2:
         try:
             st["base_bet"] = parse_amount(p[2])
         except ValueError:
-            return answer(m, "⚠️ Số tiền chưa đúng.\nVí dụ: /tudong bat 10k")
+            return reply(m, card("⚠️", "Số tiền chưa đúng", note="Ví dụ: /tudong bat 10k"))
     if st["base_bet"] <= 0:
-        return answer(m, "Mức cược phải lớn hơn 0.")
+        return reply(m, card("⚠️", "Mức cược phải lớn hơn 0"))
     block = risk_block(st, current_bet(st))
     if block:
-        return answer(m, f"⚠️ Chưa bật được: {block}.\nBạn chỉnh /caidat rồi thử lại.")
+        return reply(m, card("⛔", "Chưa bật được", [line("⚠️", "Lý do", block)],
+                             footer="🛠 Chỉnh rồi thử lại: <code>/caidat</code>"))
     st["auto"] = True
     st["mart_level"] = 0
-    answer(m, "⚡ Đã bật tự động.\n" + kv([
-        ("Mỗi phiên", fmt(st["base_bet"])),
-        ("Chế độ", MODES[st["mode"]]["label"]),
-    ]))
+    reply(m, card("⚡", "Đã bật tự động", [
+        line("💰", "Mỗi phiên", fmt(st["base_bet"])),
+        line("🧭", "Chế độ", MODES[st["mode"]]["label"]),
+    ], note="Chỉ cược khi thuật toán đủ bằng chứng."))
 
 
 @bot.message_handler(commands=["x2"])
@@ -1397,18 +1498,20 @@ def cmd_x2(m):
     action = norm(p[1]) if len(p) > 1 else ""
     if action not in ("bat", "tat"):
         status = f"bật, cấp {st['mart_level']}" if st["martingale"] else "tắt"
-        return answer(m, "💸 Gấp đôi khi thua\n" + kv([
-            ("Trạng thái", status),
-            ("Cược gốc", fmt(st["base_bet"])),
-            ("Tối đa", f"{MAX_MARTINGALE_LEVEL} lần"),
-        ]) + "\n\nGõ /x2 bat hoặc /x2 tat.")
+        return reply(m, card("🎰", "Gấp đôi khi thua", [
+            line("📌", "Trạng thái", status),
+            line("💰", "Cược gốc", fmt(st["base_bet"])),
+            line("🔢", "Tối đa", f"{MAX_MARTINGALE_LEVEL} lần"),
+        ], footer="▶️ <code>/x2 bat</code>   ⏹️ <code>/x2 tat</code>"))
     st["martingale"] = action == "bat"
     st["mart_level"] = 0
     if st["martingale"]:
-        answer(m, f"💸 Đã bật gấp đôi khi thua.\nThua thì nhân {MARTINGALE_MULTIPLIER}, thắng thì về mức gốc, "
-                  f"tối đa {MAX_MARTINGALE_LEVEL} lần.")
+        reply(m, card("🎰", "Đã bật gấp đôi khi thua", [
+            line("📈", "Quy tắc", f"thua nhân {MARTINGALE_MULTIPLIER}, thắng về mức gốc"),
+            line("🔢", "Tối đa", f"{MAX_MARTINGALE_LEVEL} lần"),
+        ]))
     else:
-        answer(m, "↩️ Đã tắt gấp đôi, về mức cược gốc.")
+        reply(m, card("↩️", "Đã tắt gấp đôi", note="Cược về mức gốc."))
 
 
 @bot.message_handler(commands=["caidat"])
@@ -1416,7 +1519,7 @@ def cmd_caidat(m):
     st = get_state(m.chat.id)
     kv_in = parse_kv(m.text)
     if not kv_in:
-        return answer(m, "📋 Cài đặt hiện tại\n\n" + setup_text(st))
+        return reply(m, setup_text(st))
 
     updates = {}
     try:
@@ -1445,15 +1548,16 @@ def cmd_caidat(m):
             else:
                 raise ValueError(f"không có mục '{k}'")
     except ValueError as e:
-        return answer(m, f"⚠️ Có chỗ chưa đúng: {e}.\nVí dụ: /caidat cuoc=10k mode=canbang")
+        return reply(m, card("⚠️", "Có chỗ chưa đúng", [line("❗", "Lỗi", str(e))],
+                             footer="💡 Ví dụ: <code>/caidat cuoc=10k mode=canbang</code>"))
 
     st.update(updates)
-    answer(m, "✅ Đã lưu.\n\n" + setup_text(st))
+    reply(m, card("✅", "Đã lưu cài đặt", setup_rows(st)))
 
 
 @bot.message_handler(commands=["thongtin"])
 def cmd_thongtin(m):
-    answer(m, account_text(get_state(m.chat.id)))
+    reply(m, account_text(get_state(m.chat.id)))
 
 
 def backtest(records, mode, base_bet):
@@ -1481,30 +1585,26 @@ def cmd_kiemthu(m):
     items = sorted(st["engine"].recs.items(), key=lambda kv_: kv_[0])
     records = [(sid, v[0], v[1], v[2]) for sid, v in items]
     if len(records) < 60:
-        return answer(m, f"Cần ít nhất 60 phiên để thử.\nHiện có {len(records)} phiên.\n"
-                         f"Gõ /dangnhap để nạp thêm lịch sử.")
+        return reply(m, card("🧪", "Chưa đủ dữ liệu", [
+            line("📚", "Phiên hiện có", str(len(records))),
+            line("📌", "Cần ít nhất", "60 phiên"),
+        ], footer="🔄 Nạp thêm bằng <code>/dangnhap TK MK</code>"))
     n = len(records)
     bet = st["base_bet"]
 
     def pnl(bets, wins, win_mult):
         return wins * bet * win_mult - (bets - wins) * bet * LOSE_LOSS
 
-    rows_a, rows_b = [], []
-    for key, label in (("antoan", "An toàn"), ("canbang", "Cân bằng"), ("maohiem", "Mạo hiểm")):
+    rows = []
+    for key, label, icon in (("antoan", "An toàn", "🟢"), ("canbang", "Cân bằng", "🟡"), ("maohiem", "Mạo hiểm", "🔴")):
         bets, wins, _ = backtest(records, key, bet)
         wr = wins / bets * 100 if bets else 0
-        rows_a.append((label, f"{bets} cược · đúng {wr:.1f}%"))
-        rows_b.append((label, f"{signed(pnl(bets, wins, 1.98))} / {signed(pnl(bets, wins, 0.98))}"))
+        rows.append(f"{icon} <b>{label}</b>  {bets} cược · đúng {wr:.1f}%")
+        rows.append(f"    x1.98 <b>{signed(pnl(bets, wins, 1.98))}</b>  ·  x0.98 <b>{signed(pnl(bets, wins, 0.98))}</b>")
     tai_wins = sum(1 for r in records if r[1] == TAI)
-    rows_a.append(("Luôn TÀI", f"{n} cược · đúng {tai_wins / n * 100:.1f}%"))
-    rows_b.append(("Luôn TÀI", f"{signed(pnl(n, tai_wins, 1.98))} / {signed(pnl(n, tai_wins, 0.98))}"))
-
-    lines = [f"🧪 Thử lại trên {n} phiên", f"Mức cược {fmt(bet)}", "", kv(rows_a), "",
-             "Lãi/lỗ: trả x1.98 / trả x0.98", kv(rows_b), "",
-             "Số sau dấu / là khi sàn trả 0.98.",
-             "Đây là số liệu đã qua, không hứa",
-             "hẹn kết quả tương lai."]
-    answer(m, "\n".join(lines))
+    rows.append(f"📌 <b>Luôn TÀI</b>  {n} cược · đúng {tai_wins / n * 100:.1f}%")
+    rows.append(f"    x1.98 <b>{signed(pnl(n, tai_wins, 1.98))}</b>  ·  x0.98 <b>{signed(pnl(n, tai_wins, 0.98))}</b>")
+    reply(m, card("🧪", f"Thử lại trên {n} phiên", rows, footer=f"💵 Mức cược {fmt(bet)}  ·  <i>số liệu đã qua, không hứa hẹn tương lai</i>"))
 
 
 @bot.message_handler(commands=["lichsu"])
@@ -1515,8 +1615,8 @@ def cmd_lichsu(m):
     n = max(1, min(n, 40))
     rows = list(st["bet_log"])
     if not rows:
-        return answer(m, "📭 Chưa có lịch sử.\nBạn đăng nhập rồi chờ ít nhất một phiên kết thúc nhé.")
-    answer(m, lichsu_text(rows, n))
+        return reply(m, card("📭", "Chưa có lịch sử", note="Đăng nhập rồi chờ ít nhất một phiên kết thúc."))
+    reply(m, lichsu_text(rows, n))
 
 
 if __name__ == "__main__":
