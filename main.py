@@ -93,19 +93,22 @@ BREAK_EVEN = LOSE_LOSS / (LOSE_LOSS + WIN_PROFIT)
 TAI, XIU = "TAI", "XIU"
 
 MODES = {
-    "antoan": {"label": "An toàn", "post": 0.75, "min_sessions": 80},
-    "canbang": {"label": "Cân bằng", "post": 0.55, "min_sessions": 50},
+    "antoan": {"label": "🛡️ An toàn", "post": 0.75, "min_sessions": 80},
+    "canbang": {"label": "⚖️ Cân bằng", "post": 0.55, "min_sessions": 50},
+    # Mạo hiểm chỉ thay đổi tần suất phát tín hiệu: dự đoán mọi phiên.
+    # Mức cược vẫn cố định, không có gấp thếp/vốn ảo.
+    "maohiem": {"label": "🔥 Mạo hiểm · mọi phiên", "post": 0.0, "min_sessions": 0, "never_skip": True},
 }
 DEFAULT_MODE = "canbang"
 
 bot.set_my_commands([
-    telebot.types.BotCommand("start", "Mở bảng điều khiển LC79 VIP"),
+    telebot.types.BotCommand("start", "Mở hướng dẫn LC79 VIP"),
     telebot.types.BotCommand("dangnhap", "Kết nối tài khoản LC79"),
-    telebot.types.BotCommand("tudong", "Điều khiển Auto riêng từng bàn"),
-    telebot.types.BotCommand("dung", "Ngắt toàn bộ kết nối"),
-    telebot.types.BotCommand("thongtin", "Tổng quan hai bàn và số dư"),
-    telebot.types.BotCommand("lichsu", "Lịch sử từng bàn"),
-    telebot.types.BotCommand("kiemthu", "Backtest từng bàn hoặc cả hai"),
+    telebot.types.BotCommand("tudong", "Bật/tắt Auto, chọn bàn và chế độ"),
+    telebot.types.BotCommand("thongtin", "Tổng quan hai bàn"),
+    telebot.types.BotCommand("lichsu", "Xem lịch sử từng bàn"),
+    telebot.types.BotCommand("kiemthu", "Kiểm thử thuật toán"),
+    telebot.types.BotCommand("dung", "Ngắt kết nối và tắt Auto"),
 ])
 
 state_lock = threading.RLock()
@@ -708,15 +711,16 @@ class CauEngine:
         else:
             out["ctx"] = "Chưa cách nào vượt ngẫu nhiên"
 
-        if n < cfg["min_sessions"] and not never_skip:
-            # Chưa đủ mẫu là trạng thái chờ dữ liệu, không phải chu kỳ nghỉ do cầu khó.
-            out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
-            return out
-
+        # Mạo hiểm: luôn xuất dự đoán ở mọi phiên, kể cả khi mẫu lịch sử còn ít.
+        # Không dùng vốn ảo/gấp thếp; số tiền đặt vẫn là base_bet cố định.
         if never_skip:
             self.skip_streak = 0
             out["side"] = strat[pick[0]] if pick else side
-            out["reason"] = "Đánh theo cách đang dẫn đầu" if pick else "Đánh theo tổng hợp"
+            out["reason"] = ""
+            return out
+
+        if n < cfg["min_sessions"]:
+            out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
             return out
 
         need = cfg["post"] + self.extra_post
@@ -956,40 +960,25 @@ def streak_icons(count, icon, limit=5):
 
 
 def prediction_text(sid, info, st):
-    """Thẻ dự đoán: tiêu đề và số liệu in đậm, mô tả nhạt, gọn."""
+    """Thẻ tín hiệu gọn: chỉ bàn, phiên, cửa dự đoán và mức cược."""
     mode = MODES[st["mode"]]
-    recent = trail(st["engine"].results(), 10) or "—"
-    eng = st["engine"]
-    head = f"<b>🎯 Phiên #{hx(sid)}</b>  ·  <b>{hx(mode['label'])}</b>"
-    lines = [head, ""]
-    if info["side"] is None:
-        lines += ["<b>⏸ Bỏ qua phiên này</b>", f"<i>{hx(info['reason'])}</i>"]
-    else:
-        side = info["side"]
-        p_side = info["p"] if side == TAI else 1 - info["p"]
-        bet = current_bet(st)
-        ctx = info["ctx"] if not info["ctx"].startswith("Chưa") else "Tổng hợp"
-        lines.append(f"<b>🎯 Tín hiệu {hx(side_label(side))}</b> {side_icon(side)}")
-        lines.append(f"<blockquote>Nghiêng mô hình <b>{p_side:.1%}</b>  ·  bằng chứng kiểm chứng <b>{info['post']:.1%}</b>\n"
-                     f"Mức tín hiệu <b>{hx(confidence_label(info['post']))}</b>  ·  cách <b>{hx(ctx)}</b>\n"
-                     f"Đã kiểm tra <b>{info.get('checked_hits', 0)}/{info.get('checked_n', 0)}</b> dự đoán trước đó\n"
-                     f"<i>Mẫu Markov hiệu dụng {info['n_eff']:.0f} · nghiêng mô hình không phải xác suất thắng</i></blockquote>")
-        lines.append("")
-        lines.append(f"<b>💰 Mức cược cố định {fmt(bet)}</b>")
-        lines.append(f"<blockquote>EV mô hình <b>{signed(bet * info['ev'])}</b></blockquote>")
-    lr = st.get("last_result")
-    if lr and lr.get("pred") is not None:
-        verdict = "đúng ✅" if lr["pred_ok"] else "sai ❌"
-        extra = ""
-        if lr["placed"]:
-            delta_txt = signed(lr["delta"]) if lr.get("delta") is not None else "chưa đối soát"
-            extra = f"  ·  cược {'thắng' if lr['won'] else 'thua'} {delta_txt}"
-        lines += ["", f"<i>Phiên #{hx(lr['sid'])} bot đoán {hx(side_label(lr['pred']))}: {verdict}{hx(extra)}</i>"]
-    k, n = eng.recent_hits()
-    if n:
-        lines.append(f"<i>Gần đây {k}/{n} đúng ({k / n:.0%})</i>")
-    lines.append(recent)
-    return "\n".join(lines)
+    if info.get("side") is None:
+        return "\n".join([
+            f"✨ <b>{hx(TABLES[st['table']]['label'])}</b>",
+            f"🧾 Phiên <b>#{hx(sid)}</b>",
+            "⏸️ <b>TẠM BỎ QUA</b>",
+        ])
+    side = info["side"]
+    return "\n".join([
+        f"╭━━━ ✨ <b>LC79 VIP PRO</b> ━━━╮",
+        f"{('🔷' if st['table'] == 'md5' else '🟣')} <b>{hx(TABLES[st['table']]['label'])}</b>",
+        f"🧾 Phiên <b>#{hx(sid)}</b>",
+        "",
+        f"🎯 DỰ ĐOÁN  <b>{hx(side_label(side))} {side_icon(side)}</b>",
+        f"💎 MỨC CƯỢC  <b>{fmt(current_bet(st))}</b>",
+        f"⚙️ CHẾ ĐỘ  <b>{hx(mode['label'])}</b>",
+        "╰━━━━━━━━━━━━━━━━━━━━╯",
+    ])
 
 
 def result_text(rec, st):
@@ -1137,39 +1126,36 @@ def lichsu_text(rows, n):
     ])
 
 
-START_HTML = """<b>╭━━━━━━━━━━ 🎰 LC79 VIP ━━━━━━━━━━╮</b>
-<b>        🧠 TRỢ LÝ PHÂN TÍCH HAI BÀN</b>
+START_HTML = """<b>╭━━━━━━ ✨ LC79 VIP PRO ✨ ━━━━━━╮</b>
+<b>       🎀 TRỢ LÝ TÀI XỈU · 2 BÀN ĐỘC LẬP</b>
 
-<blockquote>🔷 <b>BÀN 01 · TÀI XỈU MD5</b>
-📡 API lịch sử và WebSocket riêng
-🧬 Engine · streak · Auto độc lập
+<blockquote>🔷 <b>BÀN 01 · TX MD5</b>
+🟣 <b>BÀN 02 · TX THƯỜNG</b>
+📡 API · lịch sử · thuật toán · streak riêng</blockquote>
 
-🟣 <b>BÀN 02 · TÀI XỈU THƯỜNG</b>
-🎲 Lịch sử xúc xắc riêng
-🧬 Engine · streak · Auto độc lập</blockquote>
+<b>🔐 KẾT NỐI</b>
+<code>/dangnhap TAIKHOAN MATKHAU</code>
 
-<b>🔐 KẾT NỐI TÀI KHOẢN</b>
-<code>/dangnhap TK MK</code>
-
-<b>⚡ ĐIỀU KHIỂN AUTO</b>
+<b>⚡ AUTO · CƯỢC CỐ ĐỊNH</b>
 <code>/tudong md5 bat 10k</code>
 <code>/tudong tx bat 10k</code>
 <code>/tudong md5 tat</code> · <code>/tudong tx tat</code>
-<code>/tudong tat</code> · tắt Auto cả hai bàn
+<code>/tudong tat</code> · tắt cả hai bàn
 
-<b>📊 THEO DÕI & KIỂM THỬ</b>
-<code>/thongtin</code> · tổng quan hai bàn
-<code>/lichsu md5 20</code> · lịch sử MD5
-<code>/lichsu tx 20</code> · lịch sử TX thường
-<code>/kiemthu</code> · kiểm thử cả hai
-<code>/kiemthu md5</code> hoặc <code>/kiemthu tx</code>
+<b>🎮 CHẾ ĐỘ</b>
+<code>/tudong md5 bat 10k mode=antoan</code>
+<code>/tudong tx bat 10k mode=canbang</code>
+<code>/tudong tx bat 10k mode=maohiem</code>
+<code>/tudong md5 chedo maohiem</code> · đổi chế độ nhanh
 
-<b>🧩 TÙY CHỈNH NGAY TRONG LỆNH AUTO</b>
-Thêm <code>mode=antoan</code>, <code>sl=1m</code>, <code>sw=5m</code>, <code>limit=50m</code> vào lệnh bật Auto.
+<b>📊 THEO DÕI</b>
+<code>/thongtin</code> · tổng quan
+<code>/lichsu md5 20</code> · <code>/lichsu tx 20</code>
+<code>/kiemthu</code> · kiểm thử hai bàn
+<code>/dung</code> · ngắt kết nối
 
-<i>🛡️ Không vốn ảo · Không gấp thếp · Không bảo đảm kết quả.
-⏸️ Khi tín hiệu nhiễu, engine có thể nghỉ 2–3 phiên; sau nghỉ phải có ít nhất 3 phiên hoạt động mới xét đợt nghỉ kế tiếp.</i>
-<b>╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯</b>"""
+<i>💗 Không có vốn ảo hoặc gấp thếp. Mạo hiểm phát tín hiệu mọi phiên, mức cược vẫn cố định; không bảo đảm thắng.</i>
+<b>╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯</b>"""
 
 
 # ============================================================
@@ -1732,24 +1718,6 @@ def sync_loop(cid, table, generation):
 # ============================================================
 # LỆNH
 # ============================================================
-def main_keyboard():
-    kb = telebot.types.InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        telebot.types.InlineKeyboardButton("⚡ Auto MD5", callback_data="toggle:md5"),
-        telebot.types.InlineKeyboardButton("⚡ Auto TX thường", callback_data="toggle:tx"),
-    )
-    kb.add(
-        telebot.types.InlineKeyboardButton("📊 Tổng quan", callback_data="overview"),
-        telebot.types.InlineKeyboardButton("🧪 Kiểm thử cả hai", callback_data="test:all"),
-    )
-    kb.add(
-        telebot.types.InlineKeyboardButton("📜 Lịch sử MD5", callback_data="history:md5"),
-        telebot.types.InlineKeyboardButton("📜 Lịch sử TX", callback_data="history:tx"),
-    )
-    kb.add(telebot.types.InlineKeyboardButton("🛑 Tắt Auto cả hai bàn", callback_data="stop:auto"))
-    return kb
-
-
 def auto_status_text(cid):
     rows = []
     for table in ("md5", "tx"):
@@ -1762,7 +1730,7 @@ def auto_status_text(cid):
 
 @bot.message_handler(commands=["start", "help"])
 def cmd_start(m):
-    bot.reply_to(m, START_HTML, parse_mode="HTML", reply_markup=main_keyboard())
+    bot.reply_to(m, START_HTML, parse_mode="HTML")
 
 
 @bot.message_handler(commands=["dangnhap"])
@@ -1830,7 +1798,7 @@ def _apply_auto_settings(st, params):
         elif key == "mode":
             mode = norm(value)
             if mode not in MODES:
-                raise ValueError("mode chỉ nhận antoan hoặc canbang")
+                raise ValueError("mode nhận antoan, canbang hoặc maohiem")
             updates["mode"] = mode
         else:
             raise ValueError(f"không có tùy chọn '{key}'")
@@ -1882,14 +1850,31 @@ def cmd_tudong(m):
         return reply(m, card("🧭", "CHỌN BÀN TRONG CÙNG MỘT LỆNH", [
             line("🔷", "MD5", "/tudong md5 bat 10k"),
             line("🟣", "TX thường", "/tudong tx bat 10k"),
-        ], note="Không cần lệnh /txmd5, /tx hay /auto all."))
+        ], note="Dùng /tudong md5|tx bat|tat [mức_cược] [mode=antoan|canbang|maohiem]."))
     if len(p) < 3:
         return reply(m, card("🎛️", TABLES[table]["label"], [
             line("▶️", "Bật", f"/tudong {table} bat 10k"),
             line("⏹️", "Tắt", f"/tudong {table} tat"),
+            line("🎮", "Đổi chế độ", f"/tudong {table} chedo maohiem"),
         ]))
 
     action = norm(p[2])
+    if action in ("chedo", "mode"):
+        if len(p) < 4:
+            return reply(m, card("🎮", "CHỌN CHẾ ĐỘ", [
+                line("🛡️", "An toàn", f"/tudong {table} chedo antoan"),
+                line("⚖️", "Cân bằng", f"/tudong {table} chedo canbang"),
+                line("🔥", "Mạo hiểm", f"/tudong {table} chedo maohiem"),
+            ]))
+        mode = norm(p[3])
+        if mode not in MODES:
+            return reply(m, "⚠️ Chế độ: antoan / canbang / maohiem")
+        get_state(cid, table)["mode"] = mode
+        return reply(m, card("✨", "ĐÃ ĐỔI CHẾ ĐỘ", [
+            line("🎮", "Bàn", TABLES[table]["label"]),
+            line("⚙️", "Chế độ mới", MODES[mode]["label"]),
+            line("⚡", "Auto", "Đang chạy" if get_state(cid, table)["auto"] else "Đang tắt"),
+        ]))
     if action in ("tat", "off", "stop"):
         ok, message = _set_auto(cid, table, False)
         return reply(m, card("🛑" if ok else "⚠️", "ĐIỀU KHIỂN AUTO", [line("📌", "Trạng thái", message)]))
@@ -1909,7 +1894,7 @@ def cmd_tudong(m):
     return reply(m, card("⚡" if ok else "⛔", "ĐIỀU KHIỂN AUTO", [
         line("🎮", "Bàn", TABLES[table]["label"]),
         line("📌", "Trạng thái", message),
-    ], note="Auto chỉ đặt khi đủ điều kiện engine; không gấp thếp."))
+    ], note="Cược cố định; maohiem dự đoán mọi phiên, không gấp thếp."))
 
 
 @bot.message_handler(commands=["thongtin"])
@@ -2008,7 +1993,7 @@ def cmd_kiemthu(m):
             sections.append(card("🧪", "BACKTEST · " + TABLES[table]["label"], rows,
                                   note="Kết quả kiểm thử cần đủ mẫu; không suy diễn độ chính xác từ ít phiên."))
             continue
-        for key, label, icon in (("antoan", "An toàn", "🟢"), ("canbang", "Cân bằng", "🟡")):
+        for key, label, icon in (("antoan", "An toàn", "🟢"), ("canbang", "Cân bằng", "🟡"), ("maohiem", "Mạo hiểm · mọi phiên", "🔥")):
             stats = backtest(records, key)
             if stats["bets"]:
                 lo, hi = stats["ci"]
@@ -2022,51 +2007,3 @@ def cmd_kiemthu(m):
                               note="Duyệt lịch sử theo thời gian; không nhìn trước kết quả và không mô phỏng vốn/lãi ảo."))
     reply(m, "\n\n".join(sections) + "\n\n<i>🎲 Mốc tham chiếu 50% nếu hai cửa cân bằng. Kết quả quá khứ không bảo đảm phiên sau.</i>")
 
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_menu_callback(call):
-    cid = call.message.chat.id
-    data = call.data or ""
-    try:
-        if data.startswith("toggle:"):
-            table = normalize_table(data.split(":", 1)[1])
-            st = get_state(cid, table)
-            if st["auto"]:
-                ok, message = _set_auto(cid, table, False)
-            else:
-                ok, message = _set_auto(cid, table, True)
-            bot.answer_callback_query(call.id, "✅ " + message if ok else "⚠️ " + message, show_alert=not ok)
-            bot.send_message(cid, card("🎛️", "CẬP NHẬT AUTO", [line("📌", "Trạng thái", message)]),
-                             parse_mode="HTML", reply_markup=main_keyboard())
-        elif data == "overview":
-            bot.answer_callback_query(call.id)
-            cmd_thongtin(type("Message", (), {"chat": call.message.chat, "text": "/thongtin"})())
-        elif data.startswith("history:"):
-            table = normalize_table(data.split(":", 1)[1])
-            bot.answer_callback_query(call.id)
-            fake = type("Message", (), {"chat": call.message.chat, "text": f"/lichsu {table} 10"})()
-            cmd_lichsu(fake)
-        elif data == "test:all":
-            bot.answer_callback_query(call.id, "Đang chạy kiểm thử walk-forward…")
-            fake = type("Message", (), {"chat": call.message.chat, "text": "/kiemthu"})()
-            cmd_kiemthu(fake)
-        elif data == "stop:auto":
-            for table in ("md5", "tx"):
-                get_state(cid, table)["auto"] = False
-            bot.answer_callback_query(call.id, "🛑 Đã tắt Auto cả hai bàn")
-            bot.send_message(cid, card("🛑", "AUTO ĐÃ TẮT", [line("🔷", "MD5", "OFF"), line("🟣", "TX thường", "OFF")]),
-                             parse_mode="HTML", reply_markup=main_keyboard())
-        else:
-            bot.answer_callback_query(call.id, "Không nhận diện thao tác", show_alert=True)
-    except Exception as exc:
-        log.exception("Lỗi nút menu: %s", exc)
-        try:
-            bot.answer_callback_query(call.id, "Có lỗi khi xử lý thao tác", show_alert=True)
-        except Exception:
-            pass
-
-
-if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
-    log.info("%s khởi động", BOT_NAME)
-    bot.infinity_polling()
