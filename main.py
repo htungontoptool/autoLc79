@@ -1,5 +1,5 @@
-"""Render entrypoint for LC79 VIP PRO."""
-from lc79_vip_dual import main
+"""Render entrypoint for LC79 VIP dashboard."""
+from lc79_vip_dual import app, main
 
 if __name__ == "__main__":
     main()
