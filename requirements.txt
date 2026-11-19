@@ -2,3 +2,4 @@ python-socketio[client]>=5.11
 websocket-client>=1.7
 requests>=2.31
 Flask>=3.0
+gunicorn>=22.0
