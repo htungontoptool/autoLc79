@@ -321,6 +321,9 @@ def dashboard_control():
         return jsonify({"ok": True, "message": " · ".join(messages)})
     except (ValueError, TypeError) as exc:
         return jsonify({"ok": False, "message": str(exc)}), 400
+    except Exception as exc:
+        log.exception("dashboard_control failed")
+        return jsonify({"ok": False, "message": f"Lỗi server: {exc}"}), 500
 
 
 @app.route("/api/dashboard/export.txt", methods=["GET"])
@@ -491,13 +494,25 @@ def norm(s):
 
 
 def parse_amount(s):
-    s = s.lower().replace(",", "").strip()
+    s = str(s or "").lower().strip().replace(" ", "").replace(",", "")
+    # Bỏ dấu chấm ngăn nghìn kiểu VN (1.000 / 100.000)
+    if s.count(".") == 1 and len(s.split(".")[-1]) == 3 and s.replace(".", "").isdigit():
+        s = s.replace(".", "")
+    elif s.count(".") > 1:
+        s = s.replace(".", "")
     mult = 1
     if s.endswith("k"):
         mult, s = 1_000, s[:-1]
     elif s.endswith("m"):
         mult, s = 1_000_000, s[:-1]
-    value = int(s) * mult
+    if not s or not s.replace(".", "").isdigit():
+        # cho phép số nguyên thuần
+        try:
+            value = int(float(s)) * mult
+        except Exception:
+            raise ValueError("Số tiền không hợp lệ")
+    else:
+        value = int(float(s)) * mult
     if value < 0:
         raise ValueError("số tiền không được âm")
     return value
@@ -897,6 +912,22 @@ class CauEngine:
                 out[(k, hl)] = self._estimate(seq, hl, k)
         return out
 
+    def calibrate_probability(self, p_tai):
+        """Hiệu chỉnh xác suất bằng dự báo walk-forward đã được chốt kết quả.
+        Chỉ bật khi có đủ mẫu; shrink về xác suất gốc để tránh overfit."""
+        samples = list(self.calib)[-300:]
+        if len(samples) < 30:
+            return min(0.999, max(0.001, p_tai))
+        lo = max(0.0, min(0.9, math.floor(p_tai * 10) / 10))
+        bucket = [(p, y) for p, y in samples if lo <= p < lo + 0.1]
+        if len(bucket) < 12:
+            return min(0.999, max(0.001, p_tai))
+        observed = (sum(1 for _, y in bucket if y) + 2.0) / (len(bucket) + 4.0)
+        # Trọng số tăng dần theo số mẫu, tối đa 50% để không phản ứng quá mức.
+        strength = min(0.5, len(bucket) / (len(bucket) + 30.0))
+        calibrated = p_tai * (1.0 - strength) + observed * strength
+        return min(0.999, max(0.001, calibrated))
+
     def weights(self, keys):
         losses = {key: self.loss.get(key, 0.0) for key in keys}
         m = min(losses.values())
@@ -984,7 +1015,8 @@ class CauEngine:
         ex = self.experts(seq)
         keys = list(ex.keys())
         w = self.weights(keys)
-        p_tai = sum(w[k] * ex[k][0] for k in keys)
+        raw_p_tai = sum(w[k] * ex[k][0] for k in keys)
+        p_tai = self.calibrate_probability(raw_p_tai)
         top = max(keys, key=lambda k: w[k])
 
         fast, slow = (3, self.HALF_LIVES[0]), (3, self.HALF_LIVES[1])
@@ -1005,9 +1037,10 @@ class CauEngine:
             pick = None  # chiến lược đang dẫn không áp dụng được cho ván này
 
         out = {
-            "side": None, "p": p_tai, "post": post, "n_eff": n_eff,
+            "side": None, "p": p_tai, "raw_p_tai": raw_p_tai,
+            "calibrated": len(self.calib) >= 30, "post": post, "n_eff": n_eff,
             "checked_n": checked_n, "checked_hits": checked_hits, "ev": ev,
-            "reason": "", "agree": True, "p_tai": p_tai, "strat": strat,
+            "reason": "", "agree": True, "p_tai": raw_p_tai, "p_calibrated": p_tai, "strat": strat,
             "ctx": f"{expert_name(top)} {w[top]:.0%}",
             "experts": {k: ex[k][0] for k in keys},
         }
@@ -1304,6 +1337,51 @@ def risk_block(st, amount):
     if amount > int(st.get("balance") or 0):
         return "Số dư thật không đủ hoặc chưa đọc được"
     return None
+
+
+def _apply_auto_settings(st, params):
+    """Áp dụng mode / stop-loss / stop-win / daily limit từ web."""
+    params = params or {}
+    if "mode" in params:
+        mode = norm(str(params["mode"]))
+        if mode in MODES:
+            st["mode"] = mode
+        else:
+            raise ValueError("mode nhận antoan, canbang hoặc maohiem")
+    for src, dst in (("sl", "stop_loss"), ("sw", "stop_win"), ("limit", "daily_limit")):
+        if src in params and str(params[src]).strip() != "":
+            st[dst] = parse_amount(str(params[src]))
+
+
+def _set_auto(cid, table, enabled, amount=None, params=None):
+    """Bật/tắt auto cho một bàn (web)."""
+    st = get_state(cid, table)
+    if enabled:
+        if not st.get("running"):
+            return False, "Chưa đăng nhập hoặc bàn chưa kết nối"
+        try:
+            _apply_auto_settings(st, params or {})
+            if amount is not None and str(amount).strip() != "":
+                value = parse_amount(str(amount))
+                if value <= 0:
+                    raise ValueError("Mức cược phải lớn hơn 0")
+                st["base_bet"] = value
+        except ValueError as exc:
+            return False, str(exc)
+        if int(st.get("base_bet") or 0) <= 0:
+            return False, "Mức cược phải lớn hơn 0"
+        balance = refresh_state_balance(st)
+        if balance is None:
+            return False, "Không xác minh được số dư thật từ API"
+        block = risk_block(st, current_bet(st))
+        if block:
+            return False, block
+        st["auto"] = True
+        push_event(cid, f"Auto {TABLES[table]['label']}", f"BẬT · {fmt(st['base_bet'])} · {MODES[st['mode']]['label']}", "ok")
+        return True, f"Đã bật {TABLES[table]['label']} · {fmt(st['base_bet'])} · {MODES[st['mode']]['label']}"
+    st["auto"] = False
+    push_event(cid, f"Auto {TABLES[table]['label']}", "ĐÃ TẮT", "warn")
+    return True, f"Đã tắt Auto {TABLES[table]['label']}"
 
 
 # ============================================================
