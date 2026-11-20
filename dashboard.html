@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#1a120c">
+<title>LC79 VIP</title>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1a100c; --bg2:#120a08; --panel:#26140f; --panel2:#301812;
+  --line:#6a3428; --line2:#4e241c;
+  --cream:#f5e8d8; --cream2:#ead4c0; --muted:#b88870;
+  --gold:#e8b86a; --gold2:#f2d090; --brown:#8a4838; --orange:#c45a3a;
+  --green:#6a9a6a; --red:#c43a32; --red2:#e05548; --warn:#d4a04a;
+  --font:"Be Vietnam Pro",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ease:cubic-bezier(.34,1.3,.64,1); --t:.2s;
+  --radius:6px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;min-height:100%;color:var(--cream);font:14px/1.45 var(--font);
+  background:
+    radial-gradient(ellipse at 15% 0%,#5a342066 0%,transparent 42%),
+    radial-gradient(ellipse at 100% 80%,#3a201055 0%,transparent 40%),
+    repeating-linear-gradient(93deg,transparent 0 12px,#ffffff04 12px 13px),
+    linear-gradient(180deg,#1e140e,var(--bg) 35%,var(--bg2));
+}
+button,input,select{font:inherit;color:inherit;border:0;background:none;outline:none}
+button{cursor:pointer;transition:transform var(--t) var(--ease),box-shadow var(--t),filter var(--t),background var(--t)}
+button:hover:not(:disabled){transform:translateY(-2px)}
+button:active:not(:disabled){transform:translateY(1px) scale(.98)}
+button:disabled{opacity:.65;cursor:wait;transform:none!important}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ===== LOGIN: 2 cột như file mẫu ===== */
+.login-page{min-height:100dvh;display:grid;grid-template-columns:1.05fr .95fr}
+@media(max-width:900px){.login-page{grid-template-columns:1fr}}
+.story-panel{
+  position:relative;overflow:hidden;padding:clamp(28px,5vw,56px);
+  background:
+    linear-gradient(160deg,#2a1a12ee 0%,#1a120cee 55%,#120c08f2),
+    radial-gradient(circle at 70% 30%,#e4b86a22,transparent 50%);
+  border-right:1px solid #5c3a2888;
+  display:flex;flex-direction:column;justify-content:space-between;
+}
+@media(max-width:900px){.story-panel{display:none}}
+.brand-row{display:flex;align-items:center;gap:12px}
+.brand-symbol{width:44px;height:44px;border-radius:6px;overflow:hidden;border:1px solid #8a5a38;box-shadow:0 8px 20px #0005}
+.brand-symbol img{width:100%;height:100%;object-fit:cover;display:block}
+.brand-name{font-weight:800;font-size:14px;letter-spacing:.08em}
+.brand-by{color:var(--gold);font-size:10px;font-weight:700;letter-spacing:.14em;margin-top:2px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:48px}
+.eyebrow-dot{width:7px;height:7px;border-radius:99px;background:var(--gold);box-shadow:0 0 0 5px #e4b86a22}
+.story-title{margin:18px 0 14px;max-width:520px;font:800 clamp(36px,5vw,58px)/1.02 var(--font);letter-spacing:-.03em;color:var(--cream)}
+.story-title em{color:var(--gold2);font-style:normal}
+.story-subtitle{max-width:400px;color:var(--muted);font-size:14px;line-height:1.75;font-weight:500}
+.story-foot{display:flex;justify-content:space-between;gap:16px;color:#9a7a5a;font:10px var(--mono);text-transform:uppercase;letter-spacing:.1em;margin-top:40px}
+.story-motif{position:absolute;width:240px;height:240px;right:10%;bottom:16%;opacity:.35;pointer-events:none}
+.story-motif span{position:absolute;display:block;border:1px solid #e0cc9447;transform:rotate(45deg)}
+.story-motif span:first-child{inset:12%}
+.story-motif span:nth-child(2){inset:26%;border-color:#e0cc9480}
+.story-motif span:nth-child(3){inset:40%;background:var(--gold);border:0}
+
+.login-panel{display:grid;place-items:center;padding:32px 20px}
+.login-form-wrap{width:min(100%,390px);animation:fade-in .45s both}
+@keyframes fade-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.login-kicker{color:var(--muted);text-transform:uppercase;letter-spacing:.15em;margin:0 0 10px;font-size:11px;font-weight:700}
+.login-heading{margin:0;font:800 32px/1.12 var(--font);letter-spacing:-.03em}
+.login-desc{color:var(--muted);margin:10px 0 26px;font-size:13px;line-height:1.65;font-weight:500}
+.field-label{display:block;color:#c4a080;margin-bottom:7px;font-size:11px;font-weight:800;letter-spacing:.06em}
+.field-wrap{margin-bottom:16px}
+.input-shell{position:relative;display:flex;align-items:center;height:50px;border-radius:5px;border:1px solid var(--line);
+  background:linear-gradient(180deg,#2e1812,#1e120e);
+  transition:border-color .22s var(--ease),box-shadow .22s var(--ease),background .22s}
+.input-shell:hover{border-color:#8a4a38}
+.input-shell:focus-within{border-color:var(--red2);box-shadow:0 0 0 3px #c43a3228;background:linear-gradient(180deg,#321c16,#22140e)}
+.input-shell.bad{border-color:var(--red);box-shadow:0 0 0 3px #c45a4a22}
+.field-icon{flex:none;width:44px;height:50px;display:grid;place-items:center;color:#c4a080;pointer-events:none}
+.field-icon svg{width:20px;height:20px;stroke-width:1.75;display:block}
+.text-field{flex:1;min-width:0;height:100%;padding:0 12px 0 0;border:0;background:transparent;color:var(--cream);border-radius:0}
+.text-field::placeholder{color:#7a5c48}
+.text-field:focus{outline:none;box-shadow:none}
+.password-toggle{flex:none;width:44px;height:50px;display:grid;place-items:center;color:#c4a080;border-radius:0}
+.password-toggle:hover{color:var(--gold)}
+.password-toggle svg{width:20px;height:20px;stroke-width:1.75;display:block}
+.field-err{color:var(--red2);font-size:11px;margin-top:6px;min-height:14px}
+.error-note{display:none;color:#f0b0a4;background:#2a1410;border:1px solid #6a3028;border-radius:4px;gap:8px;margin:0 0 14px;padding:11px 12px;font-size:12px;line-height:1.5}
+.error-note.show{display:flex;align-items:flex-start}
+.primary-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:50px;padding:0 18px;
+  border-radius:6px;font-size:13px;font-weight:800;letter-spacing:.06em;
+  color:#1a0a08;background:linear-gradient(135deg,var(--gold2),var(--gold) 35%,var(--orange) 70%,var(--red));
+  box-shadow:0 10px 24px #c43a3240, inset 0 1px 0 #fff6}
+.primary-button:hover:not(:disabled){filter:brightness(1.05);box-shadow:0 14px 28px #c47a3a50}
+.primary-button .arr{width:18px;height:18px;transition:transform var(--t) var(--ease)}
+.primary-button:hover:not(:disabled) .arr{transform:translateX(4px)}
+.wide{width:100%;margin-top:4px}
+.spin{width:14px;height:14px;border:2px solid #1a1008;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.local-note{display:flex;gap:9px;margin-top:20px;color:#8a6a50;font-size:11px;line-height:1.6}
+.form-disclaimer{color:#7a5c48;border-top:1px solid #3a281c;margin-top:28px;padding-top:16px;font-size:11px;line-height:1.6}
+
+/* ===== DASHBOARD ===== */
+#app{display:none;min-height:100dvh}
+.topbar{position:sticky;top:0;z-index:20;height:64px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 clamp(14px,3vw,28px);border-bottom:1px solid #3a281c;
+  background:linear-gradient(180deg,#2a1c14f2,#1a120cf0);backdrop-filter:blur(12px)}
+.topbar .brand-row{gap:10px}
+.topbar .brand-symbol{width:36px;height:36px;border-radius:5px}
+.topbar-actions{display:flex;align-items:center;gap:12px}
+.connection-state{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font:10px var(--mono);text-transform:uppercase;letter-spacing:.11em}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px #6a9a6a33}
+.outline-button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:4px;
+  color:var(--muted);border:1px solid var(--line);font-size:11px;font-weight:700;background:#241810}
+.outline-button:hover{border-color:var(--gold);color:var(--gold)}
+
+.dashboard-content{width:min(1100px,100% - 28px);margin:0 auto;padding:28px 0 56px}
+.page-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.page-heading h1{margin:6px 0 4px;font:800 clamp(26px,4vw,34px)/1.1 var(--font);letter-spacing:-.03em}
+.page-heading p{margin:0;color:var(--muted);font-size:13px;font-weight:500}
+.account-chip{display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-radius:6px;border:1px solid var(--line);background:#2a1c14}
+.account-avatar{width:34px;height:34px;border-radius:5px;display:grid;place-items:center;background:#3a281c;color:var(--gold);font:800 11px var(--font)}
+.account-name{font-size:12px;font-weight:800}
+.account-caption{display:block;margin-top:2px;color:var(--muted);font-size:10px}
+
+.status-banner{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:48px;margin-bottom:14px;
+  padding:0 16px;border-radius:6px;border:1px solid var(--line);background:#2a1c14;color:var(--cream2)}
+.status-banner.running{background:#1a2818;border-color:#3a5a3a}
+.status-left{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700}
+.status-right{color:var(--muted);font:10px var(--mono)}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:800px){.metrics-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.metrics-grid{grid-template-columns:1fr}}
+.metric-card{min-height:118px;padding:16px 18px;border-radius:6px;border:1px solid var(--line);
+  background:linear-gradient(165deg,#2e1814,#1e120e);display:flex;flex-direction:column}
+.metric-card.primary{background:linear-gradient(145deg,#3a2018,#24120e);border-color:#8a4030}
+.metric-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;font-weight:700}
+.metric-value{margin-top:auto;padding-top:12px;font:800 clamp(20px,2.4vw,28px)/1 var(--font);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.metric-value.gold{color:var(--gold2)}.metric-value.ok{color:var(--green)}.metric-value.bad{color:var(--red2)}
+.metric-foot{margin-top:8px;color:var(--muted);font-size:10px}
+
+.dashboard-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(0,1.35fr);gap:14px;align-items:stretch}
+@media(max-width:900px){.dashboard-grid{grid-template-columns:1fr}}
+.panel{border-radius:6px;border:1px solid var(--line);background:linear-gradient(180deg,#2a1c14,#1c140e);overflow:hidden}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:16px 18px 14px;border-bottom:1px solid #3a281c}
+.panel-title{margin:0;display:flex;align-items:center;gap:8px;font:800 14px var(--font)}
+.panel-subtitle{margin:4px 0 0;color:var(--muted);font-size:10px}
+.settings-body{padding:16px 18px 18px}
+.settings-intro{display:flex;gap:10px;margin-bottom:16px;padding:11px 12px;border-radius:4px;background:#2a1810;border:1px solid #6a3a28;color:#d0a88a;font-size:11px;line-height:1.55}
+.limit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.limit-grid{grid-template-columns:1fr}}
+.amount-control{display:flex;align-items:center;height:44px;border-radius:8px;border:1px solid var(--line);background:#1a100c;
+  transition:border-color .22s var(--ease),box-shadow .22s var(--ease),background .22s}
+.amount-control:hover{border-color:#8a4a38}
+.amount-control:focus-within{border-color:var(--red2);box-shadow:0 0 0 3px #c43a3228;background:#22140e}
+.amount-control input{width:100%;height:100%;padding:0 8px 0 12px;font:500 12px var(--mono);background:transparent;color:var(--cream)}
+.amount-control span{padding:0 10px 0 2px;color:var(--muted);font-size:10px}
+.limit-caption{display:block;margin-top:5px;color:#8a6a50;font-size:9px;line-height:1.4}
+select.stake-mode{width:100%;min-height:44px;margin-top:7px;padding:0 12px;border-radius:8px;border:1px solid var(--line);
+  background:#1a100c;color:var(--cream);font-size:12px;font-weight:600;
+  transition:border-color .22s var(--ease),box-shadow .22s var(--ease)}
+select.stake-mode:hover{border-color:#8a4a38}
+select.stake-mode:focus{border-color:var(--red2);box-shadow:0 0 0 3px #c43a3228}
+.config-divider{height:1px;background:#3a281c;margin:16px 0}
+.tog{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--cream2)}
+.tog input{width:16px;height:16px;accent-color:var(--orange)}
+.table-picks{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 4px}
+.table-picks label{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--cream2);cursor:pointer}
+.table-picks input{width:14px;height:14px;accent-color:var(--red2)}
+.hist-row{animation:rowIn .25s var(--ease) both}
+@keyframes rowIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.tag.wait{background:#2a2410;color:#e6c06a}
+.run-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.run-actions .primary-button,.danger-button{min-height:44px;font-size:11px;padding:0 10px}
+.danger-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:5px;
+  color:#f0b0a4;background:#2a1410;border:1px solid #6a3028;font-weight:800}
+.danger-button:hover:not(:disabled){background:#3a1c16}
+.secondary-wide{width:100%;margin-top:8px;min-height:40px;border-radius:5px;border:1px solid #6a4a32;
+  background:#2a1c14;color:var(--gold);font-size:11px;font-weight:700}
+.fine-print{margin:12px 0 0;color:#8a6a50;font-size:10px;line-height:1.55}
+
+.log-panel{min-width:0}
+.log-count{color:var(--muted);font:10px var(--mono)}
+.table-scroll{width:100%;max-height:52vh;overflow:auto}
+.log-table{width:100%;border-collapse:collapse;text-align:left}
+.log-table th{position:sticky;top:0;background:#2a2018;color:#9a7a5a;font:9px var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:11px 12px}
+.log-table td{border-top:1px solid #2a1c14;padding:11px 12px;font-size:11px;color:var(--cream2);vertical-align:top}
+.log-time{color:#9a7a5a!important;font:10px var(--mono)!important}
+.side-pill{display:inline-flex;align-items:center;gap:4px;font-weight:700}
+.level-pill{display:inline-flex;align-items:flex-start;max-width:280px;padding:4px 7px;border-radius:99px;background:#2a2410;color:#c4a060;font-size:9px;font-weight:700;line-height:1.4;white-space:normal}
+.tag{display:inline-block;padding:3px 7px;border-radius:99px;font-size:9px;font-weight:800}
+.tag.ok{background:#1a2a1a;color:var(--green)}.tag.bad{background:#2a1410;color:var(--red2)}.tag.skip{background:#2a2410;color:#c4a060}
+.empty-state{display:grid;justify-items:center;text-align:center;padding:42px 20px;color:var(--muted)}
+.empty-icon{width:42px;height:42px;border-radius:6px;display:grid;place-items:center;background:#2a2018;color:var(--gold);margin-bottom:12px}
+.empty-state strong{color:var(--cream2);font-size:12px}
+.empty-state span{max-width:240px;margin-top:6px;font-size:10px;line-height:1.6}
+
+#toasts{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 12px);bottom:auto;z-index:90;display:flex;flex-direction:column;gap:8px;max-width:420px;margin:0 auto;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:5px;border-left:4px solid var(--gold);
+  background:#2a1c14;font-size:12px;font-weight:700;box-shadow:0 12px 32px #000a;animation:toastIn .46s cubic-bezier(.18,.72,.22,1) both;color:var(--cream);backdrop-filter:blur(12px)}
+.toast.ok{border-left-color:#3dcc8c;background:linear-gradient(90deg,#143322,#1a2818);color:#b8f0c8}
+.toast.err{border-left-color:#e05548;background:linear-gradient(90deg,#3a1410,#2a1410);color:#ffc0b8}
+.toast.warn{border-left-color:#e6a23c;background:linear-gradient(90deg,#3a2a10,#2a2410);color:#ffe0a0}
+.toast.info{border-left-color:#5aa8ff;background:linear-gradient(90deg,#102030,#1a2030);color:#c8e0ff}
+.toast.bet{border-left-color:#f0c15a;background:linear-gradient(90deg,#3a2810,#2a1c10);color:#ffe6a8}
+.toast .x{margin-left:auto;color:inherit;opacity:.7;padding:0 4px}
+@keyframes toastIn{0%{opacity:0;transform:translateY(-18px) scale(.975);filter:blur(5px)}70%{opacity:1;filter:blur(0)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+
+#mask{display:none;position:fixed;inset:0;z-index:70;place-items:center;padding:20px;background:#120c0888;backdrop-filter:blur(4px)}
+#mask.show{display:grid}
+.confirm-dialog{width:min(100%,420px);padding:24px;border-radius:8px;border:1px solid var(--line);
+  background:linear-gradient(180deg,#2c1c14,#1a120c);box-shadow:0 24px 70px #000a;animation:fade-in .2s both}
+.confirm-dialog h2{margin:0 0 8px;font:800 20px var(--font)}
+.confirm-dialog p{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.6}
+.confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+.confirm-actions .outline-button,.confirm-actions .danger-button{min-height:40px}
+
+/* Điểm nhấn toàn UI */
+.metric-card{position:relative;overflow:hidden}
+.metric-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--gold),var(--red2));opacity:.85}
+.metric-card.primary::before{width:4px;background:linear-gradient(180deg,var(--gold2),var(--red))}
+.metric-label::before{content:"";width:6px;height:6px;border-radius:1px;background:var(--gold);opacity:.7;flex:none}
+.panel-title::before{content:"";width:3px;height:14px;border-radius:1px;background:linear-gradient(180deg,var(--gold),var(--red2));flex:none}
+.status-banner{border-left:3px solid var(--line)}
+.status-banner.running{border-left-color:var(--green);box-shadow:inset 0 0 0 1px #3a5a3a44}
+.live-dot{animation:pulseDot 1.6s ease-in-out infinite}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 3px #6a9a6a33}50%{box-shadow:0 0 0 6px #6a9a6a22}}
+.account-chip{border-left:3px solid var(--gold)}
+.page-heading h1{position:relative}
+.table-picks label{padding:6px 10px;border:1px solid var(--line);border-radius:4px;background:#1a100c;transition:border-color .18s,background .18s}
+.table-picks label:has(input:checked){border-color:#8a4030;background:#2a1812;color:var(--gold2)}
+.log-table th{border-bottom:2px solid #5a3428}
+.tag.ok,.tag.bad,.tag.wait{border-radius:3px}
+.primary-button{position:relative}
+.primary-button::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 0 #ffffff33;pointer-events:none}
+
+
+
+/* ===== polish update: motion tinh tế + khả năng truy cập ===== */
+:root{--ease:cubic-bezier(.2,.75,.25,1);--t:.24s}
+body{background-size:140% 140%;animation:ambientShift 24s ease-in-out infinite alternate}
+@keyframes ambientShift{0%{background-position:0% 0%}100%{background-position:100% 100%}}
+.panel,.metric-card,.login-card,.account-chip{transition:transform .28s var(--ease),border-color .28s,box-shadow .28s}
+.panel{animation:panelRise .55s both}
+.dashboard-grid>.panel:nth-child(2){animation-delay:.08s}
+.metric-card:hover{transform:translateY(-3px);border-color:#9b6947;box-shadow:0 14px 34px #0004}
+.panel:hover{border-color:#80513a}
+.primary-button,.secondary-wide,.danger-button,.outline-button{position:relative;overflow:hidden}
+.primary-button::after,.secondary-wide::after{content:"";position:absolute;inset:0;transform:translateX(-130%);background:linear-gradient(105deg,transparent 35%,#ffffff22 50%,transparent 65%);transition:transform .65s}
+.primary-button:hover::after,.secondary-wide:hover::after{transform:translateX(130%)}
+.brand-symbol,.avatar{animation:softGlow 4s ease-in-out infinite}
+.status-banner.running .status-dot{animation:pulseDot 1.8s infinite}
+.hist-row{animation:rowIn .35s both}
+.toast{animation:toastIn .28s var(--ease) both;backdrop-filter:blur(12px)}
+input,select{transition:border-color .2s,box-shadow .2s,background .2s}
+input:focus,select:focus{box-shadow:0 0 0 3px #e8b86a20}
+@keyframes panelRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes softGlow{0%,100%{box-shadow:0 0 0 0 #e8b86a00}50%{box-shadow:0 0 22px #e8b86a18}}
+@media(max-width:640px){.dashboard-grid{gap:12px}.panel{border-radius:12px}.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.log-table{min-width:620px}.metric-card{min-width:0}}
+@media(prefers-reduced-motion:reduce){body{animation:none}.panel,.metric-card,.login-card,.account-chip,.hist-row,.toast,.brand-symbol,.avatar{animation:none!important}*{scroll-behavior:auto!important}}
+
+
+/* ===== LC79 identity refresh: black / amber / orange / deep red ===== */
+:root{
+  --bg:#0b0605;--bg2:#080403;--panel:#1a0b07;--panel2:#260f08;
+  --line:#6b2b16;--line2:#40180d;
+  --cream:#fff0dc;--cream2:#f3d5b0;--muted:#bd8761;
+  --gold:#f3b733;--gold2:#ffe051;--brown:#ab4019;--orange:#f8892d;
+  --green:#53c58b;--red:#d94a36;--red2:#ff7651;--warn:#ffbd45;
+}
+body{background:
+ radial-gradient(ellipse at 8% -4%,#9b3d122b 0%,transparent 38%),
+ radial-gradient(ellipse at 100% 65%,#f3a51b12 0%,transparent 36%),
+ repeating-linear-gradient(93deg,transparent 0 14px,#ffffff03 14px 15px),
+ linear-gradient(180deg,#160904,var(--bg) 45%,var(--bg2));}
+.story-panel{background:linear-gradient(150deg,#241008f5 0%,#100705f7 62%,#080403f7),radial-gradient(circle at 70% 30%,#f3b73320,transparent 50%);border-right-color:#71301888}
+.story-title em,.brand-by{color:var(--gold2)}
+.brand-symbol{border-color:#9b4b1e;box-shadow:0 8px 24px #0008,0 0 18px #f3b73314}
+.input-shell{background:linear-gradient(180deg,#2a1009,#160805);border-color:#6b2b16}
+.input-shell:focus-within{border-color:var(--orange);box-shadow:0 0 0 3px #f8892d25}
+.primary-button{background:linear-gradient(110deg,#8e270f,#c84a18 52%,#e68b25);border-color:#f3b733;color:#fff4db;box-shadow:0 8px 24px #7a260e40}
+.primary-button:hover:not(:disabled){filter:brightness(1.1);box-shadow:0 12px 28px #d85b1d45}
+.panel,.metric-card{background:linear-gradient(160deg,#241008,#120805);border-color:#5c2614}
+.metric-card.primary{background:linear-gradient(145deg,#3a1809,#1c0a05);border-color:#a34819}
+.topbar{background:linear-gradient(180deg,#1c0c07f5,#100604f2);border-bottom-color:#51200f}
+.account-chip{background:#210e08;border-color:#6b2b16}
+.status-banner{background:#200e08;border-color:#6b2b16}
+.status-banner.running{background:#142018;border-color:#3c8054}
+.outline-button,.secondary-wide{background:#210e08;border-color:#6b2b16;color:#ffd28a}
+.outline-button:hover,.secondary-wide:hover{border-color:var(--gold);color:var(--gold2)}
+.table-picks label{background:#160805;border-color:#5c2614}
+.table-picks label:has(input:checked){border-color:#f3b733;background:#351507;color:#ffe051}
+.log-table th{background:#301409;color:#e0a75b;border-bottom-color:#8f3b17}
+.log-table td{border-top-color:#32150b;color:#f3d5b0}
+.level-pill{background:#39200a;color:#ffd47a;border:1px solid #6b4214;border-radius:8px}
+.metric-actions{display:flex;gap:7px;margin-top:12px;flex-wrap:wrap}
+.metric-actions .wallet-action{display:inline-flex;align-items:center;gap:6px;min-height:31px;padding:0 10px;border-radius:8px;border:1px solid #9b4b1e;background:linear-gradient(120deg,#67200d,#9b3a13);color:#ffe7b6;font-size:10px;font-weight:800}
+.metric-actions .wallet-action.alt{background:#241006;border-color:#87502a;color:#ffd58a}
+.metric-actions .wallet-action:hover{transform:translateY(-2px);box-shadow:0 6px 16px #0005}
+.metric-card.primary{min-height:145px}
+.full-history{margin-top:15px}
+.full-history .table-scroll{max-height:58vh}
+.history-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.history-tools .outline-button{min-height:32px;font-size:10px}
+.history-subnote{padding:10px 16px;color:#c49469;font-size:10px;border-bottom:1px solid #3b190d;background:#1b0b06;line-height:1.6}
+.activity-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:13px 16px;border-bottom:1px solid #3b190d}
+.activity-stat{padding:10px 12px;border-radius:10px;background:#1d0c06;border:1px solid #54230f;min-width:0}
+.activity-stat span{display:block;color:#ba855e;font-size:10px;font-weight:700}
+.activity-stat strong{display:block;margin-top:5px;font-size:15px;color:#ffe0a0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.activity-stat strong.positive{color:#62d79b}.activity-stat strong.negative{color:#ff8a6c}
+.activity-table-wrap{width:100%;overflow:auto;max-height:58vh;-webkit-overflow-scrolling:touch}
+.activity-table{width:100%;min-width:850px;border-collapse:collapse;text-align:left}
+.activity-table th{position:sticky;top:0;z-index:1;padding:12px 14px;background:#321407;color:#e0a75b;font:10px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.activity-table td{padding:12px 14px;border-top:1px solid #32150b;color:#f3d5b0;font-size:11px;vertical-align:middle}
+.activity-filters{display:flex;gap:7px;flex-wrap:wrap;padding:12px 16px 0}
+.activity-filter{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid #693017;background:#1b0a05;color:#c9976b;font-size:10px;font-weight:800;transition:all .2s ease}
+.activity-filter.active{background:linear-gradient(110deg,#6e210d,#a94013);border-color:#e6a23c;color:#fff0c3;box-shadow:0 4px 14px #7d260c44}
+.activity-time{font:10px var(--mono);color:#bd8761!important;white-space:nowrap}
+.activity-kind{display:inline-flex;align-items:center;gap:7px;font-weight:800;color:#ffe0a0}
+.money-positive{color:#62d79b!important;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.money-negative{color:#ff8063!important;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.money-balance{font-weight:800;color:#ffe2a4;white-space:nowrap;font-variant-numeric:tabular-nums}
+.load-more-row{display:flex;justify-content:center;padding:14px}
+.empty-activity{padding:32px 16px;text-align:center;color:#bd8761;font-size:12px}
+/* Toasts slide in slowly from the top edge */
+#toasts{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 12px);bottom:auto;transform:none;z-index:90;display:flex;flex-direction:column;gap:9px;width:min(460px,calc(100vw - 24px));max-width:460px;margin-inline:auto;pointer-events:none}
+.toast{border:1px solid #8a3c19;border-left:4px solid var(--gold);border-radius:12px;background:linear-gradient(110deg,#321307f5,#1b0b06f5);color:#fff0dc;box-shadow:0 16px 36px #000b;backdrop-filter:blur(14px);padding:13px 15px;animation:toastFromTop .62s cubic-bezier(.18,.88,.22,1) both}
+.toast.ok{border-color:#317d4f;border-left-color:#58d391;background:linear-gradient(110deg,#153a25f5,#102116f5);color:#d2ffe1}
+.toast.err{border-color:#87301e;border-left-color:#ff7651;background:linear-gradient(110deg,#3a140bf5,#1d0906f5);color:#ffe0d5}
+.toast.warn{border-color:#8e5b18;border-left-color:#ffbd45;background:linear-gradient(110deg,#3b260bf5,#201406f5);color:#ffedc1}
+.toast.info{border-color:#83502a;border-left-color:#f3b733;background:linear-gradient(110deg,#39200bf5,#1e1007f5);color:#ffe8bf}
+@keyframes toastFromTop{0%{opacity:0;transform:translateY(-24px) scale(.96);filter:blur(3px)}55%{opacity:1;filter:blur(0)}78%{transform:translateY(3px) scale(1.005)}100%{opacity:1;transform:none}}
+/* Login/app scene changes */
+.login-page.leaving{animation:sceneExit .36s ease both;pointer-events:none}
+#app.entering{animation:sceneEnter .58s cubic-bezier(.2,.8,.25,1) both}
+@keyframes sceneExit{to{opacity:0;transform:scale(.985);filter:blur(5px)}}
+@keyframes sceneEnter{from{opacity:0;transform:translateY(18px) scale(.99);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+/* Wallet modal and payment surfaces */
+.modal-shell{display:none;position:fixed;inset:0;z-index:80;place-items:center;padding:16px;background:#070302c9;backdrop-filter:blur(9px)}
+.modal-shell.show{display:grid;animation:modalFade .22s ease both}
+@keyframes modalFade{from{opacity:0}to{opacity:1}}
+.wallet-dialog{width:min(780px,100%);max-height:min(92dvh,900px);overflow:auto;border:1px solid #8a3b18;border-radius:18px;background:linear-gradient(160deg,#2b1208,#100603 72%);box-shadow:0 28px 90px #000c;animation:walletRise .38s cubic-bezier(.2,.8,.25,1) both}
+@keyframes walletRise{from{opacity:0;transform:translateY(20px) scale(.98)}to{opacity:1;transform:none}}
+.wallet-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border-bottom:1px solid #57230f;position:sticky;top:0;z-index:2;background:#1d0b06f5;backdrop-filter:blur(12px)}
+.wallet-head h2{margin:0;color:#ffe5ba;font-size:17px;font-weight:800}
+.wallet-head p{margin:4px 0 0;color:#bd8761;font-size:10px}
+.wallet-close{width:36px;height:36px;border-radius:10px;background:#351509;border:1px solid #78401c;color:#ffd99a;font-size:20px}
+.wallet-tabs{display:flex;gap:7px;overflow:auto;padding:13px 18px 0}
+.wallet-tab{padding:10px 15px;border:1px solid #603018;border-radius:10px 10px 0 0;color:#bd8761;background:#1b0a05;font-size:11px;font-weight:800;white-space:nowrap}
+.wallet-tab.active{background:linear-gradient(180deg,#57210d,#321207);border-color:#d17a26;color:#ffe051}
+.wallet-body{padding:18px 20px 22px}
+.wallet-pane{display:none}.wallet-pane.active{display:block;animation:panelRise .25s ease both}
+.wallet-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.wallet-field label{display:block;margin-bottom:7px;color:#d4a36e;font-size:10px;font-weight:800;letter-spacing:.05em}
+.wallet-input,.wallet-select{width:100%;height:46px;border:1px solid #693017;border-radius:10px;background:#130704;color:#fff0dc;padding:0 13px;outline:none}
+.wallet-input:focus,.wallet-select:focus{border-color:#f3b733;box-shadow:0 0 0 3px #f3b73322}
+.amount-presets{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}
+.amount-presets button{padding:8px 11px;border-radius:8px;border:1px solid #6b3518;background:#281006;color:#ffd596;font-size:10px;font-weight:800}
+.amount-presets button:hover{border-color:#f3b733;background:#3a1708}
+.wallet-submit{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:46px;margin-top:14px;border-radius:10px;border:1px solid #f3b733;background:linear-gradient(110deg,#92290e,#d75d19,#ef9c2c);color:#fff4d4;font-size:12px;font-weight:900;box-shadow:0 8px 18px #7d260c55}
+.wallet-note{padding:11px 13px;margin-top:12px;border:1px solid #5b3519;border-radius:10px;background:#1b0c06;color:#c9976b;font-size:10px;line-height:1.65}
+.deposit-result{display:none;margin-top:16px;padding:14px;border:1px solid #754019;border-radius:13px;background:#170904;animation:panelRise .3s ease both}
+.deposit-result.show{display:grid;grid-template-columns:160px 1fr;gap:16px;align-items:center}
+.deposit-qr{width:160px;max-width:100%;aspect-ratio:1;object-fit:contain;padding:7px;background:white;border-radius:10px}
+.deposit-info{min-width:0;font-size:11px;line-height:1.7;color:#f5ddb9;overflow-wrap:anywhere}
+.deposit-info strong{color:#ffe051}
+.countdown{display:inline-flex;padding:4px 8px;border-radius:20px;background:#38220a;color:#ffd47b;font:800 11px var(--mono)}
+.bank-list{display:grid;gap:9px}
+.bank-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid #603018;border-radius:11px;background:#190904}
+.bank-item-main{min-width:0}.bank-item strong{display:block;color:#ffe2a8;font-size:12px}.bank-item span{display:block;margin-top:4px;color:#bd8761;font-size:10px;overflow-wrap:anywhere}
+.bank-item .bank-mark{flex:none;width:36px;height:36px;display:grid;place-items:center;border-radius:10px;background:#3b1708;color:#ffcb54;font-weight:900}
+.withdraw-hint{color:#c9976b;font-size:10px;line-height:1.6;margin-top:9px}
+.wallet-status{display:none;margin-top:12px;padding:11px 13px;border-radius:10px;font-size:11px;line-height:1.55}
+.wallet-status.show{display:block}.wallet-status.error{background:#34120b;border:1px solid #88311d;color:#ffd2c4}.wallet-status.ok{background:#12301d;border:1px solid #327549;color:#d1ffe0}
+@media(max-width:700px){.activity-summary{grid-template-columns:1fr 1fr}.wallet-dialog{border-radius:15px}.wallet-body{padding:14px}.wallet-grid{grid-template-columns:1fr}.deposit-result.show{grid-template-columns:1fr;justify-items:center}.deposit-info{width:100%}}
+@media(max-width:480px){.metric-actions .wallet-action{flex:1;justify-content:center}.activity-summary{grid-template-columns:1fr 1fr}.activity-stat:last-child{grid-column:1/-1}.wallet-tabs{padding-left:12px}.wallet-head{padding:14px}.full-history .table-scroll{max-height:62vh}}
+@media(prefers-reduced-motion:reduce){#toasts .toast,.login-page.leaving,#app.entering,.wallet-dialog,.modal-shell{animation:none!important}}
+
+
+/* Motion polish */
+.metric-card{transition:transform .32s cubic-bezier(.2,.8,.2,1),border-color .28s,box-shadow .32s;animation:metricEnter .55s both}
+.metric-card:nth-child(2){animation-delay:.06s}.metric-card:nth-child(3){animation-delay:.12s}.metric-card:nth-child(4){animation-delay:.18s}
+.metric-card:hover{transform:translateY(-4px);border-color:#b56a38;box-shadow:0 16px 36px #0005,0 0 22px #d9903420}
+@keyframes metricEnter{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.wallet-tabs{scrollbar-width:none}.wallet-tabs::-webkit-scrollbar{display:none}
+.wallet-tab{transition:background .25s,border-color .25s,color .25s,transform .25s;position:relative;overflow:hidden}
+.wallet-tab.active{box-shadow:0 -3px 18px #e49a2726,inset 0 1px #ffe7a64d}
+.wallet-submit{position:relative;overflow:hidden;isolation:isolate;transition:filter .25s,box-shadow .25s,transform .25s}
+.wallet-submit::after{content:"";position:absolute;inset:-40% auto -40% -45%;width:35%;transform:skewX(-20deg);background:linear-gradient(90deg,transparent,#fff5,transparent);animation:buttonShine 3.8s ease-in-out infinite;z-index:-1}
+.wallet-submit:hover:not(:disabled){filter:brightness(1.08);box-shadow:0 12px 28px #b84d1e70}
+@keyframes buttonShine{0%,48%{left:-45%;opacity:0}58%{opacity:1}82%,100%{left:130%;opacity:0}}
+.wallet-input,.wallet-select{transition:border-color .22s,box-shadow .22s,transform .22s}
+.wallet-input:focus,.wallet-select:focus{transform:translateY(-1px)}
+.bank-item{animation:bankEnter .42s cubic-bezier(.2,.8,.2,1) both;transition:transform .25s,border-color .25s,box-shadow .25s}
+.bank-item:nth-child(2){animation-delay:.05s}.bank-item:nth-child(3){animation-delay:.1s}.bank-item:nth-child(4){animation-delay:.15s}
+.bank-item:hover{transform:translateX(3px);border-color:#c17a39;box-shadow:0 8px 20px #0004}
+@keyframes bankEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.amount-presets button{transition:transform .22s,background .22s,border-color .22s,box-shadow .22s}
+.amount-presets button:active{transform:scale(.96)}
+.deposit-result.show{animation:depositReveal .48s cubic-bezier(.18,.72,.22,1) both}
+@keyframes depositReveal{from{opacity:0;transform:translateY(14px) scale(.985);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+.money-entry{font-variant-numeric:tabular-nums;letter-spacing:.035em;font-weight:700}
+#app.entering .topbar{animation:topbarEnter .5s both}
+@keyframes topbarEnter{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.metric-card,.bank-item,.wallet-submit::after{animation:none!important}.metric-card:hover,.bank-item:hover{transform:none}}
+
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login" class="login-page">
+  <section class="story-panel" aria-hidden="true">
+    <div>
+      <div class="brand-row">
+        <div class="brand-symbol"><img src="/logo_lc79.jpg" alt=""></div>
+        <div>
+          <div class="brand-name">LC79 VIP</div>
+          <div class="brand-by">BY @htungdzvipmax</div>
+        </div>
+      </div>
+      <div class="eyebrow"><span class="eyebrow-dot"></span> Control Center</div>
+      <h2 class="story-title">Điều khiển <em>Auto</em> hai bàn trong một màn hình.</h2>
+      <p class="story-subtitle">Cài mức cược, chế độ, gấp thếp một lần — áp dụng MD5 và TX. Chỉ dự đoán khi bạn bật Auto.</p>
+    </div>
+    <div class="story-foot"><span>LC79 · TX / MD5</span><span>Server-side auto</span></div>
+    <div class="story-motif" aria-hidden="true"><span></span><span></span><span></span></div>
+  </section>
+
+  <section class="login-panel">
+    <div class="login-form-wrap">
+      <div class="brand-row" style="margin-bottom:18px">
+        <div class="brand-symbol"><img src="/logo_lc79.jpg" alt="LC79"></div>
+        <div>
+          <div class="brand-name">LC79 VIP</div>
+          <div class="brand-by">BY @htungdzvipmax</div>
+        </div>
+      </div>
+      <p class="login-kicker">Tài khoản game</p>
+      <h1 class="login-heading">Đăng nhập LC79</h1>
+      <p class="login-desc">Nhập tài khoản và mật khẩu LC79 để mở bảng điều khiển Auto.</p>
+
+      <div class="error-note" id="loginBanner" role="alert"></div>
+
+      <label class="field-label" for="username">Tài khoản</label>
+      <div class="field-wrap">
+        <div class="input-shell" id="userShell">
+          <span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 10-16 0"/><circle cx="12" cy="8" r="4"/></svg></span>
+          <input class="text-field" id="username" autocomplete="username" placeholder="Tên đăng nhập LC79">
+        </div>
+        <div class="field-err" id="uerr"></div>
+      </div>
+
+      <label class="field-label" for="password">Mật khẩu</label>
+      <div class="field-wrap">
+        <div class="input-shell" id="passShell">
+          <span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 118 0v4"/></svg></span>
+          <input class="text-field" id="password" type="password" autocomplete="current-password" placeholder="Mật khẩu">
+          <button type="button" class="password-toggle" id="pwBtn" aria-label="Hiện mật khẩu"><svg id="pwIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+        <div class="field-err" id="perr"></div>
+      </div>
+
+      <button class="primary-button wide" id="btnLogin" type="button">
+        <span>ĐĂNG NHẬP</span>
+        <svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      </button>
+</div>
+  </section>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header class="topbar">
+    <div class="brand-row">
+      <div class="brand-symbol"><img src="/logo_lc79.jpg" alt=""></div>
+      <div>
+        <div class="brand-name">LC79 VIP</div>
+        <div class="brand-by">BY @htungdzvipmax</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="connection-state"><span class="live-dot" id="liveDot"></span><span id="connText">ONLINE</span></span>
+      <span class="pill-like" id="autoPill" style="font:10px var(--mono);padding:4px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)">AUTO OFF</span>
+      <button class="outline-button" type="button" onclick="doLogout()">Thoát</button>
+    </div>
+  </header>
+
+  <main class="dashboard-content">
+    <div class="page-heading">
+      <div>
+        <p class="login-kicker" style="margin:0">Bảng điều khiển</p>
+        <h1>Auto hai bàn</h1>
+        <p>Một cấu hình · áp dụng MD5 + TX</p>
+      </div>
+      <div class="account-chip">
+        <div class="account-avatar" id="av">LC</div>
+        <div>
+          <div class="account-name" id="userlabel">—</div>
+          <span class="account-caption">Tài khoản LC79</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-banner" id="statusBanner">
+      <div class="status-left" id="statusLeft">Chưa bật Auto · chưa dự đoán</div>
+      <div class="status-right" id="statusRight">—</div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card primary">
+        <div class="metric-label">Số dư realtime</div>
+        <div class="metric-value gold" id="h-balance">—</div>
+        <div class="metric-foot" id="h-nick">—</div>
+        <div class="metric-foot" id="h-safe">Ví an toàn: —</div>
+        <div class="metric-actions">
+          <button class="wallet-action" type="button" onclick="openWallet('deposit')">＋ Nạp tiền</button>
+          <button class="wallet-action alt" type="button" onclick="openWallet('withdraw')">↗ Rút tiền</button>
+          <button class="wallet-action alt" type="button" onclick="openWallet('banks')">⌂ Ngân hàng</button>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Mốc vốn</div>
+        <div class="metric-value" id="h-initial">—</div>
+        <div class="metric-foot">Baseline</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Lãi / Lỗ</div>
+        <div class="metric-value" id="h-profit">—</div>
+        <div class="metric-foot">So với mốc</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Thắng · Thua</div>
+        <div class="metric-value" id="h-wl">—</div>
+        <div class="metric-foot" id="h-acc">2 bàn</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h3 class="panel-title">Cài cược</h3>
+            <p class="panel-subtitle">Áp dụng cả MD5 và TX</p>
+          </div>
+          <span style="font-size:10px;color:var(--muted);font-weight:600" id="modeHint">Cân bằng ≥51%</span>
+        </div>
+        <div class="settings-body">
+          <div class="settings-intro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>
+            <span>Cân bằng ≥51% · An toàn ≥58% · Mạo hiểm mọi phiên · nghỉ tối đa 8/100 · thua 3 tay thì chờ chắc.</span>
+          </div>
+          <div class="limit-grid">
+            <div>
+              <label class="field-label" for="bet">Mức cược</label>
+              <div class="amount-control"><input id="bet" type="number" value="10000" min="1000" step="1000"><span>đ</span></div>
+              <span class="limit-caption">Cược gốc mỗi lệnh</span>
+            </div>
+            <div>
+              <label class="field-label" for="mode">Chế độ</label>
+              <select class="stake-mode" id="mode" onchange="syncModeHint()">
+                <option value="canbang">Cân bằng · ≥51%</option>
+                <option value="antoan">An toàn · ≥58%</option>
+                <option value="maohiem">Mạo hiểm · mọi phiên</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="sl">Stop loss</label>
+              <div class="amount-control"><input id="sl" type="number" value="0" min="0" step="1000"><span>đ</span></div>
+            </div>
+            <div>
+              <label class="field-label" for="sw">Stop win</label>
+              <div class="amount-control"><input id="sw" type="number" value="0" min="0" step="1000"><span>đ</span></div>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <label class="field-label" for="limit">Trần cược ngày</label>
+            <div class="amount-control"><input id="limit" type="number" value="0" min="0" step="1000"><span>đ</span></div>
+            <span class="limit-caption">0 = không giới hạn</span>
+          </div>
+          <div class="config-divider"></div>
+          <label class="tog"><input type="checkbox" id="mg"> Gấp thếp khi thua ×
+            <select id="mgmult" style="width:64px;min-height:28px;border:1px solid var(--line);border-radius:6px;background:#1a120c;padding:0 6px;margin-left:4px">
+              <option value="2">2</option><option value="1.5">1.5</option><option value="2.5">2.5</option>
+            </select>
+          </label>
+          <div class="table-picks">
+            <label><input type="checkbox" id="pickMd5" checked> Bàn MD5</label>
+            <label><input type="checkbox" id="pickTx" checked> TX thường</label>
+          </div>
+          <div class="run-actions">
+            <button class="primary-button" type="button" onclick="control('start')">BẬT AUTO <svg class="arr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg></button>
+            <button class="danger-button" type="button" onclick="askStop()">DỪNG</button>
+          </div>
+          <button class="secondary-wide" type="button" onclick="control('settings')">Lưu cấu hình</button>
+          <button class="secondary-wide" type="button" onclick="control('baseline')">Đặt số dư hiện tại làm mốc vốn</button>
+</div>
+      </section>
+
+    </div>
+
+    <section class="panel log-panel full-history">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Lịch sử dự đoán & cược Auto</h3>
+          <p class="panel-subtitle">Thời gian · phiên · lựa chọn · kết quả · số tiền · lý do của thuật toán</p>
+        </div>
+        <div class="history-tools">
+          <span class="log-count" id="logCount">0 dòng</span>
+          <button class="outline-button" type="button" onclick="refresh()">↻ Cập nhật</button>
+        </div>
+      </div>
+      <div id="dualMini" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px 14px;border-bottom:1px solid #32150b"></div>
+      <div class="table-scroll"><div id="hist"></div></div>
+    </section>
+
+    <section class="panel full-history">
+      <div class="panel-head">
+        <div>
+          <h3 class="panel-title">Biến động số dư · cược & giftcode</h3>
+          <p class="panel-subtitle">Dữ liệu trực tiếp từ lịch sử hoạt động trong game LC79</p>
+        </div>
+        <div class="history-tools">
+          <span class="log-count" id="activityCount">0 giao dịch</span>
+          <button class="outline-button" type="button" onclick="loadActivity(true)">↻ Làm mới</button>
+        </div>
+      </div>
+      <div class="history-subnote">Danh sách này gồm đặt cược, thắng cược, hoàn cược và nhận giftcode. Đây không phải lịch sử nạp/rút ngân hàng.</div>
+      <div class="activity-filters" role="group" aria-label="Lọc lịch sử hoạt động">
+        <button class="activity-filter active" data-activity-filter="all" type="button" onclick="setActivityFilter('all')">Tất cả</button>
+        <button class="activity-filter" data-activity-filter="bet" type="button" onclick="setActivityFilter('bet')">Cược</button>
+        <button class="activity-filter" data-activity-filter="gift" type="button" onclick="setActivityFilter('gift')">Nhận giftcode</button>
+        <button class="activity-filter" data-activity-filter="result" type="button" onclick="setActivityFilter('result')">Thắng / hoàn</button>
+      </div>
+      <div class="activity-summary">
+        <div class="activity-stat"><span>Tổng giao dịch đã tải</span><strong id="activityTotal">0</strong></div>
+        <div class="activity-stat"><span>Tiền cộng</span><strong class="positive" id="activityIn">0đ</strong></div>
+        <div class="activity-stat"><span>Tiền trừ</span><strong class="negative" id="activityOut">0đ</strong></div>
+      </div>
+      <div class="activity-table-wrap"><div id="activityHist"><div class="empty-activity">Đăng nhập để tải biến động số dư trong game.</div></div></div>
+      <div class="load-more-row"><button class="outline-button" id="activityMore" type="button" onclick="loadActivity(false)" style="display:none">Tải giao dịch cũ hơn</button></div>
+    </section>
+  </main>
+</div>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<div id="walletModal" class="modal-shell" role="dialog" aria-modal="true" aria-labelledby="walletTitle">
+  <section class="wallet-dialog">
+    <header class="wallet-head">
+      <div><h2 id="walletTitle">Ví tài khoản</h2><p>Nạp, rút và quản lý ngân hàng</p></div>
+      <button class="wallet-close" type="button" onclick="closeWallet()" aria-label="Đóng">×</button>
+    </header>
+    <nav class="wallet-tabs" aria-label="Chức năng ví">
+      <button class="wallet-tab active" data-wallet-tab="deposit" type="button" onclick="walletTab('deposit')">Nạp tiền</button>
+      <button class="wallet-tab" data-wallet-tab="withdraw" type="button" onclick="walletTab('withdraw')">Rút tiền</button>
+      <button class="wallet-tab" data-wallet-tab="banks" type="button" onclick="walletTab('banks')">Ngân hàng đã liên kết</button>
+    </nav>
+    <div class="wallet-body">
+      <section class="wallet-pane active" id="wallet-deposit">
+        <div class="wallet-grid">
+          <div class="wallet-field"><label for="depositAmount">SỐ TIỀN MUỐN NẠP</label><input class="wallet-input money-entry" id="depositAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 100.000"></div>
+        </div>
+        <div class="amount-presets">
+          <button type="button" onclick="setAmount('depositAmount',50000)">50.000đ</button>
+          <button type="button" onclick="setAmount('depositAmount',100000)">100.000đ</button>
+          <button type="button" onclick="setAmount('depositAmount',200000)">200.000đ</button>
+          <button type="button" onclick="setAmount('depositAmount',500000)">500.000đ</button>
+          <button type="button" onclick="setAmount('depositAmount',1000000)">1.000.000đ</button>
+        </div>
+        <button class="wallet-submit" id="depositSubmit" type="button" onclick="createDeposit()">TẠO LỆNH NẠP & MÃ QR</button>
+        <div class="wallet-status" id="depositStatus"></div>
+        <div class="deposit-result" id="depositResult">
+          <img class="deposit-qr" id="depositQr" alt="Mã QR nạp tiền">
+          <div class="deposit-info" id="depositInfo"></div>
+        </div>
+        <div class="wallet-note">Chỉ chuyển khoản theo đúng số tiền và nội dung do cổng thanh toán trả về. Mã QR có thời hạn; hết hạn cần tạo lệnh mới. Không chuyển đến số tài khoản lấy từ nguồn bên ngoài.</div>
+      </section>
+      <section class="wallet-pane" id="wallet-withdraw">
+        <div class="wallet-grid">
+          <div class="wallet-field"><label for="withdrawAmount">SỐ TIỀN MUỐN RÚT</label><input class="wallet-input money-entry" id="withdrawAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="Chọn mệnh giá hợp lệ"></div>
+          <div class="wallet-field"><label for="withdrawBank">NGÂN HÀNG NHẬN</label><select class="wallet-select" id="withdrawBank"><option value="">Đang tải ngân hàng…</option></select></div>
+        </div>
+        <div class="amount-presets" id="withdrawPresets"></div>
+        <div class="withdraw-hint" id="withdrawHint">Đang kiểm tra bảo mật, số dư và hạn mức rút.</div>
+        <button class="wallet-submit" id="withdrawSubmit" type="button" onclick="submitWithdraw()">GỬI YÊU CẦU RÚT TIỀN</button>
+        <div class="wallet-status" id="withdrawStatus"></div>
+        <div class="wallet-note">Chỉ rút về ngân hàng đã liên kết trong tài khoản game. Hệ thống sẽ kiểm tra liên kết số điện thoại, số dư và mệnh giá rút trước khi gửi yêu cầu.</div>
+      </section>
+      <section class="wallet-pane" id="wallet-banks">
+        <div class="bank-list" id="linkedBanks"><div class="empty-activity">Đang tải danh sách ngân hàng…</div></div>
+      </section>
+    </div>
+  </section>
+</div>
+
+<div id="mask" role="dialog" aria-modal="true">
+  <div class="confirm-dialog">
+    <h2>Dừng Auto?</h2>
+    <p>Tắt auto cả hai bàn MD5 và TX. Có thể bật lại bất cứ lúc nào.</p>
+    <div class="confirm-actions">
+      <button class="outline-button" type="button" onclick="closeDlg()">Không</button>
+      <button class="danger-button" type="button" onclick="confirmStop()">Dừng ngay</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let token=sessionStorage.getItem("lc79_session")||"";
+let nickname=sessionStorage.getItem("lc79_nick")||"";
+let lastSnap=null, timer=null, refreshBusy=false;
+let activityCursor="", activityHasMore=false, activityLoading=false, activityItems=[], activityLastLoaded=0, activityFilter="all";
+let walletBanks=[], withdrawConfig={denominations:[],minimum:0}, walletSecurity={mobileSecure:0};
+const EYE_ON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.5 10.6a3 3 0 104.2 4.2M6.7 6.7C4.2 8.2 2.5 10.4 2 12c0 0 3.5 7 10 7 1.8 0 3.4-.4 4.7-1M17.3 17.3C19.7 15.8 21.3 13.6 22 12c0 0-3.5-7-10-7-1.1 0-2.1.1-3 .4"/></svg>';
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+function fmt(n){return (Number(n)||0).toLocaleString("vi-VN")+"đ"}
+function parseMoney(s){return Number(String(s??"").replace(/[^\d]/g,""))||0}
+function formatMoneyInput(el){
+  const old=String(el.value||"");
+  const caret=typeof el.selectionStart==="number"?el.selectionStart:old.length;
+  const digitsBefore=old.slice(0,caret).replace(/[^\d]/g,"").length;
+  const raw=old.replace(/[^\d]/g,"");
+  if(!raw){el.value="";return}
+  const formatted=Number(raw).toLocaleString("vi-VN");
+  el.value=formatted;
+  let pos=0,count=0;
+  while(pos<formatted.length&&count<digitsBefore){if(/\d/.test(formatted[pos]))count++;pos++}
+  try{el.setSelectionRange(pos,pos)}catch(e){}
+}
+function bindMoney(id){
+  const el=$(id); if(!el) return;
+  el.addEventListener("input",()=>formatMoneyInput(el));
+  el.addEventListener("blur",()=>formatMoneyInput(el));
+  if(el.value) formatMoneyInput(el);
+}
+function side(s){if(!s)return "—";const u=String(s).toUpperCase();return u.includes("TAI")?"TÀI":u.includes("XIU")?"XỈU":s}
+let seenEvents=new Set();
+try{const saved=JSON.parse(sessionStorage.getItem("lc79_seen_ev")||"[]");if(Array.isArray(saved))seenEvents=new Set(saved)}catch(e){sessionStorage.removeItem("lc79_seen_ev")}
+function saveSeen(){const arr=[...seenEvents].slice(-40);sessionStorage.setItem("lc79_seen_ev",JSON.stringify(arr))}
+function requestNotify(){
+  if(!("Notification" in window)) return;
+  if(Notification.permission==="default"){
+    Notification.requestPermission().then(p=>{
+      if(p==="granted") toast("Đã bật thông báo thiết bị","ok");
+      else if(p==="denied") toast("Bạn đã tắt quyền thông báo","warn");
+    });
+  }
+}
+function deviceNotify(title,body){
+  if(!("Notification" in window) || Notification.permission!=="granted") return;
+  try{
+    const n=new Notification(title,{body:body||"",icon:"/logo_lc79.jpg",badge:"/logo_lc79.jpg",tag:"lc79-"+Date.now()});
+    setTimeout(()=>n.close(),6000);
+  }catch(e){}
+}
+function handleEvents(list){
+  if(!list||!list.length) return;
+  for(const ev of list){
+    const id=String(ev.id||ev.ts||"");
+    if(!id||seenEvents.has(id)) continue;
+    seenEvents.add(id);
+    const kind=ev.kind==="bet"?"bet":ev.kind==="ok"?"ok":ev.kind==="warn"?"warn":ev.kind==="error"?"err":"info";
+    toast((ev.title||"")+(ev.body?" · "+ev.body:""), kind);
+    if(ev.kind==="bet"||ev.kind==="ok"||ev.kind==="warn") deviceNotify(ev.title||"LC79 VIP", ev.body||"");
+  }
+  saveSeen();
+}
+function toast(msg,type="info"){
+  const t=document.createElement("div");
+  t.className="toast "+(type==="error"||type==="err"?"err":type==="ok"?"ok":type==="warn"?"warn":type==="bet"?"bet":"info");
+  t.innerHTML=`<div>${esc(msg)}</div><button class="x" type="button" aria-label="Đóng">×</button>`;
+  t.querySelector(".x").onclick=()=>t.remove();
+  $("toasts").appendChild(t);
+  setTimeout(()=>{if(t.parentNode)t.remove()}, type==="error"?5200:3600);
+}
+function syncModeHint(){
+  const v=$("mode").value;
+  $("modeHint").textContent=v==="antoan"?"An toàn ≥58%":v==="maohiem"?"Mạo hiểm · nghỉ ≤14/100":"Cân bằng ≥51%";
+}
+function clearErr(){
+  $("username").classList.remove("bad");$("password").classList.remove("bad");
+  const us=$("userShell"),ps=$("passShell");
+  if(us) us.classList.remove("bad"); if(ps) ps.classList.remove("bad");
+  $("uerr").textContent="";$("perr").textContent="";
+  $("loginBanner").classList.remove("show");$("loginBanner").textContent="";
+}
+$("pwBtn").onclick=()=>{
+  const p=$("password");const show=p.type==="password";
+  p.type=show?"text":"password";
+  $("pwBtn").innerHTML=show?EYE_OFF:EYE_ON;
+  $("pwBtn").setAttribute("aria-label",show?"Ẩn mật khẩu":"Hiện mật khẩu");
+};
+async function api(path,opts={}){
+  const headers=Object.assign({"Content-Type":"application/json","X-Session-Token":token},opts.headers||{});
+  const r=await fetch(path,Object.assign({},opts,{headers}));
+  if(r.status===401){doLogout(true);throw new Error("Hết phiên — đăng nhập lại")}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error||j.message||("Lỗi "+r.status));
+  return j;
+}
+async function doLogin(){
+  clearErr();
+  const u=$("username").value.trim(), p=$("password").value;
+  let bad=false;
+  if(!u){$("uerr").textContent="Nhập tài khoản";$("userShell").classList.add("bad");bad=true}
+  if(!p){$("perr").textContent="Nhập mật khẩu";$("passShell").classList.add("bad");bad=true}
+  if(bad) return;
+  const btn=$("btnLogin");
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>ĐANG ĐĂNG NHẬP…';
+  try{
+    const r=await fetch("/api/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})});
+    const j=await r.json();
+    if(!r.ok||!j.ok) throw new Error(j.error||"Sai tài khoản hoặc mật khẩu");
+    token=j.token;nickname=j.nickname||u;
+    sessionStorage.setItem("lc79_session",token);sessionStorage.setItem("lc79_nick",nickname);
+    $("login").classList.add("leaving");
+    await new Promise(resolve=>setTimeout(resolve,260));
+    $("login").style.display="none";$("app").style.display="block";$("app").classList.add("entering");
+    $("userlabel").textContent=nickname;
+    $("av").textContent=(nickname||"LC").slice(0,2).toUpperCase();
+    toast("Đăng nhập thành công · Auto đang tắt, chưa nạp phiên dự đoán","ok");
+    requestNotify();
+    await refresh();
+    await Promise.allSettled([loadProfile(),loadActivity(true)]);
+    startPoll();
+    setTimeout(()=>$("app").classList.remove("entering"),700);
+  }catch(e){
+    $("perr").textContent=e.message;$("passShell").classList.add("bad");
+    $("loginBanner").textContent=e.message;$("loginBanner").classList.add("show");
+    toast(e.message,"error");
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML='<span>ĐĂNG NHẬP</span><svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>';
+  }
+}
+function doLogout(silent){
+  if(token) fetch("/api/dashboard/logout",{method:"POST",headers:{"X-Session-Token":token}}).catch(()=>{});
+  token="";nickname="";sessionStorage.removeItem("lc79_session");sessionStorage.removeItem("lc79_nick");
+  $("app").style.display="none";$("login").style.display="grid";$("password").value="";
+  if(timer){clearInterval(timer);timer=null}
+  if(!silent) toast("Đã thoát","info");
+}
+function startPoll(){if(timer)clearInterval(timer);timer=setInterval(()=>{if(token)refresh().catch(()=>{})},7000)}
+function askStop(){$("mask").classList.add("show")}
+function closeDlg(){$("mask").classList.remove("show")}
+function confirmStop(){closeDlg();control("stop")}
+
+function renderDual(d){
+  $("dualMini").innerHTML=["md5","tx"].map(k=>{
+    const t=d.tables[k]||{};
+    return `<div style="border:1px solid var(--line);border-radius:5px;padding:10px;background:#1a120c">
+      <div style="font-size:11px;font-weight:800;margin-bottom:6px">${esc(t.label||k)}</div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px"><span>W/L</span><b style="color:var(--cream)">${t.wins||0}/${t.losses||0}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px"><span>Cược HT</span><b style="color:var(--cream)">${fmt(t.current_bet||t.base_bet||0)}</b></div>
+      <div style="margin-top:6px;font-size:10px;font-weight:800;color:${t.auto?"var(--green)":"var(--red2)"}">${t.auto?"● AUTO ON":"○ AUTO OFF"} · WS ${t.connected?"LIVE":"OFF"}</div>
+    </div>`;
+  }).join("");
+}
+function renderHist(list){
+  $("logCount").textContent=(list?list.length:0)+" dòng";
+  if(!list||!list.length){
+    $("hist").innerHTML=`<div class="empty-state"><div class="empty-icon">∅</div><strong>Chưa có phiên</strong><span>Bật Auto để bắt đầu dự đoán và ghi lịch sử hai bàn.</span></div>`;
+    return;
+  }
+  const rows=list.map((r,idx)=>{
+    const dice=(r.dice&&r.dice.length)?r.dice.join(" · "):"—";
+    const pred=r.pred?side(r.pred):(r.status==="pending"?"Đang chờ":"Bỏ qua");
+    const res=r.res?side(r.res):(r.status==="pending"||r.status==="betting"?"Đang chờ":"—");
+    let tag="skip",tt="BỎ QUA";
+    if(r.status==="pending"||(r.pred!=null&&r.res==null&&r.pred_ok==null)){tag="wait";tt="CHỜ KẾT QUẢ"}
+    else if(r.status==="betting"){tag="wait";tt="ĐÃ GỬI CƯỢC"}
+    else if(r.pred!=null){if(r.pred_ok){tag="ok";tt="DỰ ĐOÁN ĐÚNG"}else if(r.pred_ok===false){tag="bad";tt="DỰ ĐOÁN SAI"}else{tag="wait";tt="CHỜ"}}
+    const reason=r.reason?`<div class="level-pill">${esc(r.reason)}</div>`:"<span style='color:var(--muted)'>Không đặt cược / chưa có lý do</span>";
+    const tb=(r.table_label||r.table||"").replace(/LC79-?/i,"");
+    const bet=Number(r.bet||0), delta=r.delta===null||r.delta===undefined?null:Number(r.delta||0);
+    const amount= r.placed||bet?fmt(bet):"—";
+    const deltaText=delta===null?"Chưa đối soát":((delta>=0?"+":"")+fmt(delta));
+    const deltaClass=delta===null?"":delta>=0?"money-positive":"money-negative";
+    return `<tr class="hist-row" style="animation-delay:${Math.min(idx,10)*0.025}s">
+      <td class="log-time">${esc(r.time||"—")}<div style="color:var(--gold);font-weight:800;margin-top:4px">Phiên #${esc(r.sid)}</div></td>
+      <td><b>${esc(tb)}</b></td>
+      <td><b>${esc(pred)} → ${esc(res)}</b><div style="color:var(--muted);margin-top:4px;font-size:10px">Xúc xắc: ${esc(dice)}${r.total!=null?" · Tổng "+esc(r.total):""}</div></td>
+      <td style="min-width:220px;max-width:360px;white-space:normal">${reason}</td>
+      <td class="money-balance">${esc(amount)}</td>
+      <td class="${deltaClass}">${esc(deltaText)}</td>
+      <td><span class="tag ${tag}">${tt}</span></td>
+    </tr>`;
+  }).join("");
+  $("hist").innerHTML=`<table class="log-table"><thead><tr><th>Thời gian / phiên</th><th>Bàn</th><th>Dự đoán / kết quả</th><th>Lý do hệ thống</th><th>Tiền cược</th><th>Thực tế biến động</th><th>Trạng thái</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function fillShared(s){
+  if(!s) return;
+  $("bet").value=(s.base_bet||10000).toLocaleString("vi-VN");$("mode").value=s.mode||"canbang";
+  $("sl").value=(s.stop_loss||0)?Number(s.stop_loss).toLocaleString("vi-VN"):"0";
+  $("sw").value=(s.stop_win||0)?Number(s.stop_win).toLocaleString("vi-VN"):"0";
+  $("limit").value=(s.daily_limit||0)?Number(s.daily_limit).toLocaleString("vi-VN"):"0";
+  $("mg").checked=!!s.martingale;$("mgmult").value=String(s.mg_mult||2);syncModeHint();
+  const on=!!s.auto_any;
+  $("autoPill").textContent=on?"AUTO ON":"AUTO OFF";
+  $("autoPill").style.color=on?"var(--green)":"var(--muted)";
+  $("autoPill").style.borderColor=on?"#3a5a3a":"var(--line)";
+  $("statusBanner").className="status-banner"+(on?" running":"");
+  const logged=!!token;
+  $("statusLeft").textContent=on?"Auto đang chạy trên server · có thể đóng web":(logged?"Đã đăng nhập · chờ bạn bật Auto để nạp phiên dự đoán":"Chưa bật Auto · chưa nạp lịch sử phiên");
+}
+async function refresh(){
+  if(refreshBusy) return;
+  refreshBusy=true;
+  try{
+  const d=await api("/api/dashboard/status");
+  const md5=d.tables.md5||{}, tx=d.tables.tx||{};
+  const bal=md5.balance||tx.balance||0;const init=md5.initial_balance||tx.initial_balance||0;
+  const profit=(md5.profit||0)+(tx.profit||0)||(init?bal-init:0);
+  $("h-balance").textContent=fmt(bal);$("h-initial").textContent=init?fmt(init):"—";
+  const pv=$("h-profit");pv.textContent=(profit>=0?"+":"")+fmt(profit);pv.className="metric-value "+(profit>0?"ok":profit<0?"bad":"");
+  $("h-wl").textContent=`${(md5.wins||0)+(tx.wins||0)}W · ${(md5.losses||0)+(tx.losses||0)}L`;
+  $("h-nick").textContent=nickname||"—";
+  $("statusRight").textContent=new Date().toLocaleTimeString("vi-VN");
+  const ae=document.activeElement;
+  if(!ae||!["bet","mode","sl","sw","limit","mg","mgmult"].includes(ae.id)) fillShared(d.shared);
+  else {
+    const on=!!(d.shared&&d.shared.auto_any);
+    $("autoPill").textContent=on?"AUTO ON":"AUTO OFF";
+    $("statusBanner").className="status-banner"+(on?" running":"");
+  }
+  renderDual(d);renderHist(d.history||[]);handleEvents(d.events||[]);
+  if(lastSnap&&d.history&&d.history[0]){
+    const a=lastSnap.history&&lastSnap.history[0];const b=d.history[0];
+    if(b&&(!a||String(a.sid)+a.table!==String(b.sid)+b.table))
+      toast(`${b.table_label||""} #${b.sid} · ${b.pred_ok?"ĐÚNG":"SAI"} · ${side(b.res)}`, b.pred_ok?"ok":"warn");
+  }
+  lastSnap=d;
+  if(token&&Date.now()-activityLastLoaded>45000) loadActivity(true).catch(()=>{});
+
+  }finally{refreshBusy=false}
+}
+async function control(action){
+  const runButton=document.querySelector(".run-actions .primary-button");
+  const oldButton=runButton?runButton.innerHTML:"";
+  try{
+    const tables=[];
+    if($("pickMd5")&&$("pickMd5").checked) tables.push("md5");
+    if($("pickTx")&&$("pickTx").checked) tables.push("tx");
+    if(!tables.length){toast("Chọn ít nhất một bàn","err");return}
+    if(action==="start"&&runButton){runButton.disabled=true;runButton.innerHTML='<span class="spin"></span> ĐANG NẠP LỊCH SỬ…';toast("Đang tải lịch sử phiên trước khi bật Auto","info")}
+    const body={tables,action,base_bet:parseMoney($("bet").value)||10000,mode:$("mode").value||"canbang",
+      stop_loss:parseMoney($("sl").value)||0,stop_win:parseMoney($("sw").value)||0,daily_limit:parseMoney($("limit").value)||0,
+      martingale:!!$("mg").checked,mg_mult:Number($("mgmult").value)||2};
+    const r=await api("/api/dashboard/control",{method:"POST",body:JSON.stringify(body)});
+    if(action==='start') requestNotify();
+    toast(r.message||"Đã cập nhật", action==="stop"?"warn":"ok");
+    await refresh();
+  }catch(e){toast(e.message,"error")}
+  finally{if(runButton){runButton.disabled=false;runButton.innerHTML=oldButton}}
+}
+function moneyText(n){return (Number(n)||0).toLocaleString("vi-VN")+"đ"}
+function setAmount(id,value){const el=$(id);if(el){el.value=String(value);formatMoneyInput(el)}}
+function showWalletStatus(id,message,type="error"){
+  const el=$(id);if(!el)return;el.textContent=message;el.className="wallet-status show "+(type==="ok"?"ok":"error");
+}
+function walletTab(tab){
+  document.querySelectorAll(".wallet-tab").forEach(b=>b.classList.toggle("active",b.dataset.walletTab===tab));
+  document.querySelectorAll(".wallet-pane").forEach(p=>p.classList.toggle("active",p.id==="wallet-"+tab));
+}
+async function openWallet(tab="deposit"){
+  $("walletModal").classList.add("show");walletTab(tab);
+  if(tab==="banks") $("linkedBanks").innerHTML='<div class="empty-activity">Đang cập nhật ngân hàng…</div>';
+  await Promise.allSettled([loadWalletData(),loadProfile()]);
+}
+function closeWallet(){$("walletModal").classList.remove("show")}
+async function loadWalletData(){
+  const [b,c]=await Promise.allSettled([api("/api/dashboard/banks"),api("/api/dashboard/withdraw-config")]);
+  if(b.status==="fulfilled"){
+    walletBanks=Array.isArray(b.value.banks)?b.value.banks:[];
+    renderBanks();
+  }else{
+    walletBanks=[];
+    $("linkedBanks").innerHTML=`<div class="empty-activity">${esc(b.reason?.message||"Không tải được ngân hàng")}</div>`;
+    $("withdrawBank").innerHTML='<option value="">Không tải được ngân hàng</option>';
+  }
+  if(c.status==="fulfilled") withdrawConfig={denominations:Array.isArray(c.value.denominations)?c.value.denominations:[],minimum:Number(c.value.minimum)||0};
+  else $("withdrawHint").textContent=c.reason?.message||"Không tải được hạn mức rút";
+  renderWithdrawOptions();
+}
+function renderBanks(){
+  const target=$("linkedBanks");
+  if(!walletBanks.length){target.innerHTML='<div class="empty-activity">Chưa có ngân hàng liên kết hoặc API chưa trả danh sách. Hãy liên kết ngân hàng trong ứng dụng LC79 trước khi rút.</div>';return}
+  target.innerHTML=walletBanks.map(b=>`<div class="bank-item"><div class="bank-item-main"><strong>${esc(b.bankName||b.bankCode||"Ngân hàng")}</strong><span>${esc(b.accountNumber||"—")} · ${esc(b.accountName||"—")}</span></div><div class="bank-mark">${esc(String(b.bankCode||"BK").slice(0,3).toUpperCase())}</div></div>`).join("");
+  const select=$("withdrawBank");
+  select.innerHTML='<option value="">Chọn tài khoản ngân hàng</option>'+walletBanks.map(b=>`<option value="${Number(b.index)}">${esc(b.bankCode||b.bankName)} · ${esc(String(b.accountNumber||"").slice(-4))} · ${esc(b.accountName||"")}</option>`).join("");
+}
+function renderWithdrawOptions(){
+  const target=$("withdrawPresets");
+  const values=withdrawConfig.denominations||[];
+  if(!values.length){target.innerHTML="";$("withdrawHint").textContent="API không trả danh sách mệnh giá; cần nhập và chờ máy chủ xác thực hạn mức.";return}
+  target.innerHTML=values.slice(0,12).map(v=>`<button type="button" onclick="setAmount('withdrawAmount',${Number(v)})">${moneyText(v)}</button>`).join("");
+  $("withdrawHint").textContent="Mệnh giá rút hợp lệ do máy chủ trả về"+(withdrawConfig.minimum?" · Tối thiểu "+moneyText(withdrawConfig.minimum):"")+".";
+}
+async function loadProfile(){
+  try{
+    const d=await api("/api/dashboard/profile");
+    const p=d.profile||{},sec=d.security||{};walletSecurity=sec;
+    if(p.nick_name){nickname=p.nick_name;$("userlabel").textContent=nickname;$("h-nick").textContent=nickname;$("av").textContent=nickname.slice(0,2).toUpperCase();sessionStorage.setItem("lc79_nick",nickname)}
+    if(p.balance!==undefined){$("h-balance").textContent=moneyText(p.balance)}
+    if(p.safe!==undefined){$("h-safe").textContent=moneyText(p.safe)}
+    if($("withdrawHint")){
+      const phone=sec.mobileSecure===1?"Số điện thoại đã liên kết":"Chưa liên kết số điện thoại";
+      $("withdrawHint").textContent=phone+(withdrawConfig.minimum?" · Tối thiểu "+moneyText(withdrawConfig.minimum):"");
+    }
+  }catch(e){console.warn("Profile load:",e.message)}
+}
+let depositExpiryTimer=null;
+async function createDeposit(){
+  const amount=parseMoney($("depositAmount").value);
+  if(!Number.isSafeInteger(amount)||amount<=0){showWalletStatus("depositStatus","Nhập số tiền nạp hợp lệ");return}
+  const btn=$("depositSubmit"),old=btn.textContent;btn.disabled=true;btn.textContent="ĐANG TẠO LỆNH…";
+  $("depositResult").classList.remove("show");$("depositStatus").className="wallet-status";
+  try{
+    const d=await api("/api/dashboard/deposit",{method:"POST",body:JSON.stringify({amount})});
+    const x=d.deposit||{};
+    if(x.qr){$("depositQr").src=x.qr;$("depositQr").style.display="block"}else{$("depositQr").style.display="none"}
+    const payUrl=String(x.url||"");const safePayUrl=/^https:\/\//i.test(payUrl)?payUrl:"";
+    $("depositInfo").innerHTML=`<div><strong>ĐÃ TẠO LỆNH NẠP</strong></div><div>Số tiền: <strong>${moneyText(x.amount)}</strong></div><div>Ngân hàng: <strong>${esc(x.bank||"Theo cổng thanh toán")}</strong></div><div>Chủ tài khoản: <strong>${esc(x.account_name||"—")}</strong></div><div>Nội dung chuyển khoản: <strong>${esc(x.message||"—")}</strong> <button class="outline-button" id="copyDepositMessage" style="min-height:26px">Sao chép</button></div><div>Thời hạn: <span class="countdown" id="depositCountdown">${Number(x.expired)||300}s</span></div>${safePayUrl?`<div style="margin-top:8px"><a href="${esc(safePayUrl)}" target="_blank" rel="noopener noreferrer" style="color:#ffe051;font-weight:800">Mở cổng thanh toán ↗</a></div>`:""}`;
+    const copyBtn=$("copyDepositMessage");if(copyBtn)copyBtn.onclick=()=>copyText(String(x.message||""));
+    $("depositResult").classList.add("show");showWalletStatus("depositStatus","Đã tạo lệnh. Chuyển khoản đúng nội dung và trước khi mã hết hạn.","ok");
+    let remain=Math.max(1,Number(x.expired)||300);if(depositExpiryTimer)clearInterval(depositExpiryTimer);
+    depositExpiryTimer=setInterval(()=>{remain--;const c=$("depositCountdown");if(c)c.textContent=remain+"s";if(remain<=0){clearInterval(depositExpiryTimer);if(c)c.textContent="ĐÃ HẾT HẠN";showWalletStatus("depositStatus","Mã nạp đã hết hạn. Hãy tạo lệnh mới.")}},1000);
+  }catch(e){showWalletStatus("depositStatus",e.message)}
+  finally{btn.disabled=false;btn.textContent=old}
+}
+function copyText(text){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast("Đã sao chép nội dung chuyển khoản","ok")).catch(()=>toast("Không sao chép được","warn"))}else{toast("Thiết bị không hỗ trợ sao chép nhanh","warn")}}
+async function submitWithdraw(){
+  const amount=parseMoney($("withdrawAmount").value),bankIndex=Number($("withdrawBank").value);
+  if(!Number.isSafeInteger(amount)||amount<=0){showWalletStatus("withdrawStatus","Nhập số tiền rút hợp lệ");return}
+  if(!$("withdrawBank").value){showWalletStatus("withdrawStatus","Chọn ngân hàng đã liên kết");return}
+  if(walletSecurity.mobileSecure!==1){showWalletStatus("withdrawStatus","Bạn chưa liên kết số điện thoại. Hãy liên kết trong tài khoản LC79 trước khi rút.");return}
+  if(!withdrawConfig.denominations.length){showWalletStatus("withdrawStatus","Chưa tải được danh sách mệnh giá rút từ LC79. Hãy đóng và mở lại mục Rút tiền để tải cấu hình; chưa gửi lệnh.");return}
+  if(!withdrawConfig.denominations.includes(amount)){showWalletStatus("withdrawStatus","Số tiền không thuộc mệnh giá rút hợp lệ");return}
+  if(withdrawConfig.minimum&&amount<withdrawConfig.minimum){showWalletStatus("withdrawStatus","Số tiền rút tối thiểu là "+moneyText(withdrawConfig.minimum));return}
+  const bank=walletBanks.find(b=>Number(b.index)===bankIndex);
+  if(!bank){showWalletStatus("withdrawStatus","Không tìm thấy ngân hàng đã liên kết");return}
+  if(!confirm(`Xác nhận gửi yêu cầu rút ${moneyText(amount)} về ${bank.bankCode||bank.bankName} ••••${String(bank.accountNumber||"").slice(-4)}?`))return;
+  const btn=$("withdrawSubmit"),old=btn.textContent;btn.disabled=true;btn.textContent="ĐANG GỬI YÊU CẦU…";
+  try{
+    const d=await api("/api/dashboard/withdraw",{method:"POST",body:JSON.stringify({amount,bank_index:bankIndex})});
+    showWalletStatus("withdrawStatus",`${d.message||"Đã gửi yêu cầu"} · ${moneyText(d.amount)} · ${d.bank} ••••${String(d.account||"").slice(-4)}`,"ok");
+    toast("Đã gửi yêu cầu rút tiền","ok");await loadProfile();await refresh();
+  }catch(e){showWalletStatus("withdrawStatus",e.message)}
+  finally{btn.disabled=false;btn.textContent=old}
+}
+function fmtActivityTime(value){
+  if(!value)return "—";const m=String(value).match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)(?::(\d\d))?/);
+  return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}:${m[6]||"00"}`:String(value);
+}
+function activityGroup(r){
+  const low=String(r.service_name||"").toLowerCase();
+  if(low==="giftcode_redemption"||low.includes("giftcode"))return "gift";
+  if(low.includes("đặt")||low.includes("bet"))return "bet";
+  if(low.includes("thắng cược")||low.includes("hoàn cược")||low.includes("win")||low.includes("refund"))return "result";
+  return "other";
+}
+function activityKind(r){
+  const raw=String(r.service_name||"");const low=raw.toLowerCase();
+  if(activityGroup(r)==="gift")return ["🎁","Nhận giftcode"];
+  if(activityGroup(r)==="bet")return ["🎲","Đặt cược"];
+  if(low.includes("thắng cược")||low.includes("win"))return ["🏆","Thắng cược"];
+  if(low.includes("hoàn cược")||low.includes("refund"))return ["↩️","Hoàn cược"];
+  return ["💳",raw||"Giao dịch trong game"];
+}
+function setActivityFilter(filter){
+  activityFilter=filter;
+  document.querySelectorAll("[data-activity-filter]").forEach(b=>b.classList.toggle("active",b.dataset.activityFilter===filter));
+  renderActivity();
+}
+function renderActivity(){
+  const rows=activityItems||[];
+  const visible=activityFilter==="all"?rows:rows.filter(r=>activityGroup(r)===activityFilter);
+  $("activityCount").textContent=visible.length===rows.length?rows.length+" giao dịch":visible.length+" / "+rows.length+" hiển thị";
+  $("activityTotal").textContent=rows.length.toLocaleString("vi-VN");
+  const plus=rows.reduce((a,r)=>a+Math.max(0,Number(r.money_exchange)||0),0),minus=rows.reduce((a,r)=>a+Math.min(0,Number(r.money_exchange)||0),0);
+  $("activityIn").textContent=moneyText(plus);$("activityOut").textContent=moneyText(Math.abs(minus));
+  $("activityMore").style.display=activityHasMore?"inline-flex":"none";
+  if(!rows.length){$("activityHist").innerHTML='<div class="empty-activity">Chưa có biến động số dư được trả về từ API.</div>';return}
+  if(!visible.length){$("activityHist").innerHTML='<div class="empty-activity">Không có giao dịch thuộc bộ lọc này trong số dữ liệu đã tải.</div>';return}
+  $("activityHist").innerHTML=`<table class="activity-table"><thead><tr><th>Thời gian</th><th>Loại hoạt động</th><th>Mô tả</th><th>Tiền biến động</th><th>Số dư sau giao dịch</th></tr></thead><tbody>${visible.map((r,i)=>{
+    const [icon,label]=activityKind(r),delta=Number(r.money_exchange)||0;
+    const deltaText=(delta>0?"+":"")+moneyText(delta);
+    return `<tr class="hist-row" style="animation-delay:${Math.min(i,12)*.018}s"><td class="activity-time">${esc(fmtActivityTime(r.trans_time))}</td><td><span class="activity-kind">${icon} ${esc(label)}</span></td><td style="min-width:220px;max-width:420px;white-space:normal"><b>${esc(r.service_name||r.description||"Hoạt động")}</b><div style="color:var(--muted);font-size:10px;margin-top:4px">${esc(r.description||"")} ${r._id?"· #"+esc(String(r._id).slice(-8)):""}</div></td><td class="${delta>=0?"money-positive":"money-negative"}">${esc(deltaText)}</td><td class="money-balance">${esc(moneyText(r.current_money))}</td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+async function loadActivity(reset=true){
+  if(activityLoading)return;activityLoading=true;
+  // Làm mới trang đầu nhưng giữ những trang cũ mà người dùng đã mở rộng.
+  const keepOlder=reset&&activityItems.length>20;
+  const olderItems=keepOlder?activityItems.slice(20):[];
+  const olderCursor=activityCursor, olderHasMore=activityHasMore;
+  if(reset&&!activityItems.length){$("activityHist").innerHTML='<div class="empty-activity">Đang tải lịch sử hoạt động…</div>'}
+  const more=$("activityMore");more.disabled=true;more.textContent="ĐANG TẢI…";
+  try{
+    const query=new URLSearchParams({limit:"20"});if(!reset&&activityCursor)query.set("beforeId",activityCursor);
+    const d=await api("/api/dashboard/activity?"+query.toString());
+    const incoming=Array.isArray(d.items)?d.items:[];
+    if(reset){
+      if(keepOlder){
+        const freshIds=new Set(incoming.map(x=>x&&x._id).filter(Boolean));
+        activityItems=incoming.concat(olderItems.filter(x=>!x._id||!freshIds.has(x._id)));
+        activityCursor=olderCursor||d.next_before_id||"";
+        activityHasMore=olderHasMore||!!d.has_more;
+      }else{
+        activityItems=incoming;activityCursor=d.next_before_id||"";activityHasMore=!!d.has_more&&incoming.length>0;
+      }
+    }else{
+      const seen=new Set(activityItems.map(x=>x&&x._id).filter(Boolean));
+      for(const item of incoming){if(item&&(!item._id||!seen.has(item._id))){activityItems.push(item);if(item._id)seen.add(item._id)}}
+      activityCursor=d.next_before_id||activityCursor;activityHasMore=!!d.has_more&&incoming.length>0;
+    }
+    renderActivity();
+  }catch(e){
+    if(!activityItems.length)$("activityHist").innerHTML=`<div class="empty-activity">Không tải được lịch sử: ${esc(e.message)}</div>`;
+    toast(e.message,"warn");
+  }
+  finally{activityLastLoaded=Date.now();activityLoading=false;more.disabled=false;more.textContent="Tải giao dịch cũ hơn"}
+}
+
+["bet","sl","sw","limit","depositAmount","withdrawAmount"].forEach(bindMoney);
+$("btnLogin").onclick=doLogin;
+$("password").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
+$("username").addEventListener("keydown",e=>{if(e.key==="Enter")$("password").focus()});
+$("mask").addEventListener("click",e=>{if(e.target===$("mask"))closeDlg()});
+$("walletModal").addEventListener("click",e=>{if(e.target===$("walletModal"))closeWallet()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeDlg();closeWallet()}});
+if(token){
+  $("login").style.display="none";$("app").style.display="block";
+  $("userlabel").textContent=nickname||"VIP";
+  $("av").textContent=(nickname||"LC").slice(0,2).toUpperCase();
+  refresh().then(()=>Promise.allSettled([loadProfile(),loadActivity(true)])).then(startPoll).catch(()=>{doLogout(true);toast("Phiên cũ hết hạn","warn")});
+}
+</script>
+</body>
+</html>
