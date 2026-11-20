@@ -133,12 +133,17 @@ def dashboard_login():
             st["access_token"] = res["access"]
             st["jwt"] = res["token"]
             st["nickname"] = res["nickname"]
-            st["running"] = True
+            # Đăng nhập chỉ xác thực tài khoản. Chỉ khi người dùng bấm BẬT AUTO
+            # mới nạp lịch sử phiên và khởi chạy WebSocket / vòng đồng bộ.
+            st["running"] = False
+            st["auto"] = False
+            st["ws_connected"] = False
+            st["pending"] = None
+            st["last_open_sid"] = None
+            st["session_id"] = None
+            st["engine"] = CauEngine()
             st["login_at"] = time.time()
             st["gen"] += 1
-            generation = st["gen"]
-        threading.Thread(target=start_websocket, args=(cid, res["token"], table), daemon=True).start()
-        threading.Thread(target=sync_loop, args=(cid, table, generation), daemon=True).start()
 
     token = create_web_session(username, res.get("nickname") or username)
     return jsonify({
@@ -348,6 +353,323 @@ def dashboard_export():
                     headers={"Content-Disposition": f'attachment; filename="lc79_history_{table_arg}.txt"'})
 
 
+
+
+# ============================================================
+# LC79 PROFILE / GAME ACTIVITY / WALLET PROXY
+# Các API này chỉ chạy ở backend để tránh CORS và không đưa JWT ra trình duyệt.
+# ============================================================
+LC79_ORIGIN = "https://play.lc79.bet"
+LC79_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7.8 Mobile/15E148 Safari/604.1",
+    "Origin": LC79_ORIGIN,
+    "Referer": LC79_ORIGIN + "/",
+}
+LC79_WLB = "https://wlb.tele68.com"
+LC79_GAMEAPI = "https://gameapi.tele68.com"
+
+
+def _lc79_credentials(cid=None):
+    cid = cid or dashboard_chat_id()
+    if cid is None:
+        raise RuntimeError("Phiên đăng nhập không hợp lệ")
+    st = get_state(cid, "md5")
+    jwt = str(st.get("jwt") or "").strip()
+    access = str(st.get("access_token") or "").strip()
+    if not jwt or not access:
+        raise RuntimeError("Thiếu phiên xác thực LC79. Vui lòng đăng nhập lại")
+    return cid, st, jwt, access
+
+
+def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15):
+    query = {"cp": "R", "cl": "R", "pf": "web", "at": jwt}
+    if params:
+        query.update(params)
+    response = requests.request(
+        method.upper(), url, params=query, json=payload,
+        headers=LC79_HEADERS, timeout=timeout,
+    )
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"message": (response.text or "")[:300]}
+    if response.status_code == 401:
+        raise RuntimeError("Phiên game hết hạn. Hãy đăng xuất và đăng nhập lại")
+    if response.status_code >= 400:
+        detail = data.get("message") if isinstance(data, dict) else None
+        raise RuntimeError(str(detail or f"API LC79 trả mã HTTP {response.status_code}")[:240])
+    return data
+
+
+def _unwrap_dict(data):
+    cur = data
+    for _ in range(4):
+        if not isinstance(cur, dict):
+            break
+        nested = None
+        for key in ("data", "result", "profile", "user", "account"):
+            if isinstance(cur.get(key), dict):
+                nested = cur[key]
+                break
+        if nested is None:
+            break
+        cur = nested
+    return cur if isinstance(cur, dict) else {}
+
+
+def _unwrap_list(data):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("data", "list", "items", "records", "banks"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                found = _unwrap_list(value)
+                if found:
+                    return found
+    return []
+
+
+def _find_nested_value(data, key_names):
+    wanted = {str(k).lower() for k in key_names}
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if str(key).lower() in wanted:
+                    return value
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return None
+
+
+def _parse_int_money(value, default=0):
+    try:
+        if isinstance(value, str):
+            value = value.replace(",", "").replace(".", "").strip()
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _get_profile_and_security(jwt):
+    profile_raw = _lc79_request(
+        "GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt
+    )
+    security_raw = _lc79_request(
+        "GET", LC79_WLB + "/v1/minigame/user/security-info", jwt
+    )
+    profile = _unwrap_dict(profile_raw)
+    security = _unwrap_dict(security_raw)
+    return profile, security
+
+
+@app.route("/api/dashboard/profile", methods=["GET"])
+def dashboard_profile():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        cid, st, jwt, access = _lc79_credentials()
+        profile, security = _get_profile_and_security(jwt)
+        balance = _parse_int_money(profile.get("balance"), None)
+        if balance is not None:
+            with state_lock:
+                apply_shared_balance(st, balance)
+        return jsonify({
+            "ok": True,
+            "profile": {
+                "user_name": profile.get("user_name") or "",
+                "nick_name": profile.get("nick_name") or st.get("nickname") or "",
+                "balance": balance if balance is not None else int(st.get("balance") or 0),
+                "safe": _parse_int_money(profile.get("safe"), 0),
+                "mobilePhone": profile.get("mobilePhone") or "",
+                "mobile": profile.get("mobile") or "",
+            },
+            "security": {
+                "mobileSecure": int(security.get("mobileSecure") or 0),
+                "telegramSecure": int(security.get("telegramSecure") or 0),
+                "mobilePhone": security.get("mobilePhone") or profile.get("mobilePhone") or "",
+                "telegramAccount": security.get("telegramAccount") or "",
+                "otpPriority": security.get("otpPriority") or "",
+            },
+        })
+    except Exception as exc:
+        log.warning("Profile LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/dashboard/activity", methods=["GET"])
+def dashboard_activity():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        _cid, _st, jwt, _access = _lc79_credentials()
+        limit = max(1, min(_parse_int_money(request.args.get("limit"), 20), 50))
+        params = {"limit": limit}
+        before_id = str(request.args.get("beforeId") or "").strip()
+        if before_id:
+            params["beforeId"] = before_id
+        raw = _lc79_request(
+            "GET", LC79_WLB + "/v1/lobby/activity/history", jwt, params=params
+        )
+        rows = _unwrap_list(raw)
+        next_cursor = str(rows[-1].get("_id") or "") if rows and isinstance(rows[-1], dict) else ""
+        return jsonify({"ok": True, "items": rows, "next_before_id": next_cursor,
+                        "has_more": len(rows) >= limit})
+    except Exception as exc:
+        log.warning("Activity LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/dashboard/banks", methods=["GET"])
+def dashboard_banks():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        _cid, _st, jwt, _access = _lc79_credentials()
+        raw = _lc79_request(
+            "GET", LC79_WLB + "/v1/lobby/payment-info/list-bank/cashout", jwt
+        )
+        banks = _unwrap_list(raw)
+        safe_banks = []
+        valid_banks = [bank for bank in banks if isinstance(bank, dict)]
+        for idx, bank in enumerate(valid_banks):
+            safe_banks.append({
+                "index": idx,
+                "bankCode": bank.get("bankCode") or bank.get("type") or bank.get("bankName") or "",
+                "accountNumber": bank.get("accountNumber") or bank.get("number") or bank.get("receiver") or "",
+                "accountName": bank.get("accountName") or bank.get("name") or "",
+                "bankName": bank.get("bankName") or bank.get("bankCode") or bank.get("type") or "Ngân hàng",
+            })
+        return jsonify({"ok": True, "banks": safe_banks})
+    except Exception as exc:
+        log.warning("Bank list LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/dashboard/withdraw-config", methods=["GET"])
+def dashboard_withdraw_config():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        _cid, _st, jwt, _access = _lc79_credentials()
+        raw = _lc79_request(
+            "POST", LC79_WLB + "/v1/lobby/payment-info/configuration", jwt, payload={}
+        )
+        denominations = _find_nested_value(raw, ("MENH_GIA_RUT_BANK",)) or []
+        minimum = _find_nested_value(raw, ("XUT_MIN_AMOUNT_CAN_WITHDRAW_BANK", "MIN_AMOUNT_CAN_WITHDRAW_BANK"))
+        if not isinstance(denominations, list):
+            denominations = []
+        denominations = sorted({n for n in (_parse_int_money(x, 0) for x in denominations) if n > 0})
+        return jsonify({"ok": True, "denominations": denominations,
+                        "minimum": _parse_int_money(minimum, 0)})
+    except Exception as exc:
+        log.warning("Withdraw config LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/dashboard/deposit", methods=["POST"])
+def dashboard_deposit():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    amount = _parse_int_money(data.get("amount"), 0)
+    if amount <= 0:
+        return jsonify({"error": "Số tiền nạp phải lớn hơn 0"}), 400
+    try:
+        _cid, _st, jwt, _access = _lc79_credentials()
+        raw = _lc79_request(
+            "GET", LC79_GAMEAPI + "/v1/payment-app/cash-in/bank", jwt,
+            params={"amount": amount},
+        )
+        body = raw if isinstance(raw, dict) else {}
+        info = body.get("data") if isinstance(body.get("data"), dict) else _unwrap_dict(body)
+        deposit_ok = body.get("code") in (0, "0") or body.get("success") is True or body.get("message") == "success"
+        if not deposit_ok:
+            return jsonify({"error": str(body.get("message") or "Không tạo được lệnh nạp")[:220]}), 502
+        qr = info.get("qr") or ""
+        if isinstance(qr, str) and qr and not qr.startswith("data:"):
+            qr = "data:image/png;base64," + qr.split(",")[-1]
+        return jsonify({"ok": True, "deposit": {
+            "amount": amount, "bank": info.get("type") or "",
+            "account_name": info.get("name") or "",
+            "message": info.get("msg") or "", "qr": qr,
+            "url": info.get("url") or "", "expired": _parse_int_money(info.get("expired"), 300),
+        }})
+    except Exception as exc:
+        log.warning("Cash-in LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/dashboard/withdraw", methods=["POST"])
+def dashboard_withdraw():
+    if not dashboard_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    amount = _parse_int_money(data.get("amount"), 0)
+    bank_index = _parse_int_money(data.get("bank_index"), -1)
+    otp = str(data.get("otp") or "").strip()
+    if amount <= 0:
+        return jsonify({"error": "Số tiền rút phải lớn hơn 0"}), 400
+    try:
+        cid, st, jwt, _access = _lc79_credentials()
+        profile, security = _get_profile_and_security(jwt)
+        if _parse_int_money(security.get("mobileSecure"), 0) != 1:
+            return jsonify({"error": "Vui lòng liên kết số điện thoại trong game trước khi rút tiền"}), 409
+        banks_raw = _lc79_request(
+            "GET", LC79_WLB + "/v1/lobby/payment-info/list-bank/cashout", jwt
+        )
+        banks = [b for b in _unwrap_list(banks_raw) if isinstance(b, dict)]
+        if bank_index < 0 or bank_index >= len(banks):
+            return jsonify({"error": "Vui lòng chọn ngân hàng đã liên kết hợp lệ"}), 400
+        bank = banks[bank_index]
+        bank_code = str(bank.get("bankCode") or bank.get("type") or bank.get("bankName") or "").strip()
+        account_number = str(bank.get("accountNumber") or bank.get("number") or bank.get("receiver") or "").strip()
+        account_name = str(bank.get("accountName") or bank.get("name") or "").strip()
+        if not bank_code or not account_number or not account_name:
+            return jsonify({"error": "Thông tin ngân hàng liên kết chưa đầy đủ"}), 409
+        config = _lc79_request(
+            "POST", LC79_WLB + "/v1/lobby/payment-info/configuration", jwt, payload={}
+        )
+        denominations = _find_nested_value(config, ("MENH_GIA_RUT_BANK",)) or []
+        minimum = _parse_int_money(_find_nested_value(config, ("XUT_MIN_AMOUNT_CAN_WITHDRAW_BANK", "MIN_AMOUNT_CAN_WITHDRAW_BANK")), 0)
+        if not isinstance(denominations, list):
+            denominations = []
+        allowed = {_parse_int_money(x, 0) for x in denominations}
+        allowed.discard(0)
+        if not allowed:
+            return jsonify({"error": "Chưa tải được danh sách mệnh giá rút hợp lệ từ LC79; chưa gửi lệnh rút"}), 409
+        if amount not in allowed:
+            return jsonify({"error": "Số tiền không nằm trong mệnh giá rút được phép: " + ", ".join(f"{x:,}" for x in sorted(allowed)[:12])}), 400
+        if minimum and amount < minimum:
+            return jsonify({"error": f"Số tiền rút tối thiểu là {minimum:,}đ"}), 400
+        current = _parse_int_money(profile.get("balance"), None)
+        if current is None:
+            current = fetch_account_balance(st.get("access_token"), jwt)
+        if current is None:
+            return jsonify({"error": "Không xác minh được số dư hiện tại, chưa gửi lệnh rút"}), 409
+        if amount > current:
+            return jsonify({"error": f"Số dư không đủ. Hiện có {current:,}đ"}), 409
+        payload = {"amount": amount, "name": account_name.upper(), "number": account_number,
+                   "otp": otp, "type": bank_code.upper()}
+        raw = _lc79_request(
+            "POST", LC79_GAMEAPI + "/v1/payment-app/cash-out/bank", jwt, payload=payload
+        )
+        success = isinstance(raw, dict) and (raw.get("code") in (0, "0") or raw.get("success") is True)
+        if not success:
+            msg = raw.get("message") if isinstance(raw, dict) else None
+            return jsonify({"error": str(msg or "Nhà cung cấp từ chối lệnh rút")[:220]}), 502
+        return jsonify({"ok": True, "message": "Đã gửi yêu cầu rút tiền đến LC79", "amount": amount,
+                        "bank": bank_code, "account": account_number[-4:].rjust(len(account_number), "•")})
+    except Exception as exc:
+        log.warning("Cash-out LC79 lỗi: %s", str(exc)[:160])
+        return jsonify({"error": str(exc)}), 502
 
 
 def run_web():
@@ -1353,12 +1675,40 @@ def _apply_auto_settings(st, params):
             st[dst] = parse_amount(str(params[src]))
 
 
+def start_table_runtime(cid, table):
+    """Chỉ nạp lịch sử và kết nối bàn khi người dùng chủ động bật Auto."""
+    table = normalize_table(table) or DEFAULT_TABLE
+    st = get_state(cid, table)
+    if st.get("running"):
+        return True, "Bàn đã được khởi chạy"
+    token = str(st.get("jwt") or "").strip()
+    if not token:
+        return False, "Chưa có phiên đăng nhập LC79"
+    records = fetch_history_from_api(table, MAX_HISTORY)
+    if not records:
+        return False, f"Không nạp được lịch sử {TABLES[table]['label']}; chưa bật Auto để tránh dự đoán khi thiếu dữ liệu"
+    with state_lock:
+        st["engine"].ingest(records)
+        st["poll_last_id"] = records[-1].get("session")
+        st["login_at"] = time.time()
+        st["running"] = True
+        st["ws_connected"] = False
+        st["gen"] += 1
+        generation = st["gen"]
+    threading.Thread(target=start_websocket, args=(cid, token, table), daemon=True).start()
+    threading.Thread(target=sync_loop, args=(cid, table, generation), daemon=True).start()
+    push_event(cid, f"Đã nạp lịch sử {TABLES[table]['label']}", f"{len(records)} phiên · đang kết nối bàn", "info")
+    return True, f"Đã nạp {len(records)} phiên {TABLES[table]['label']} · đang kết nối"
+
+
 def _set_auto(cid, table, enabled, amount=None, params=None):
     """Bật/tắt auto cho một bàn (web)."""
     st = get_state(cid, table)
     if enabled:
-        if not st.get("running"):
-            return False, "Chưa đăng nhập hoặc bàn chưa kết nối"
+        if not st.get("access_token") or not st.get("jwt"):
+            return False, "Chưa đăng nhập LC79"
+        # Kiểm tra và áp dụng cấu hình trước khi mở bất kỳ luồng tải phiên nào.
+        # Như vậy cấu hình sai không để lại websocket/sync loop chạy nền ngoài ý muốn.
         try:
             _apply_auto_settings(st, params or {})
             if amount is not None and str(amount).strip() != "":
@@ -1370,11 +1720,22 @@ def _set_auto(cid, table, enabled, amount=None, params=None):
             return False, str(exc)
         if int(st.get("base_bet") or 0) <= 0:
             return False, "Mức cược phải lớn hơn 0"
+
+        newly_started = False
+        if not st.get("running"):
+            started, start_message = start_table_runtime(cid, table)
+            if not started:
+                return False, start_message
+            newly_started = True
         balance = refresh_state_balance(st)
         if balance is None:
+            if newly_started:
+                stop_user(cid, table)
             return False, "Không xác minh được số dư thật từ API"
         block = risk_block(st, current_bet(st))
         if block:
+            if newly_started:
+                stop_user(cid, table)
             return False, block
         st["auto"] = True
         push_event(cid, f"Auto {TABLES[table]['label']}", f"BẬT · {fmt(st['base_bet'])} · {MODES[st['mode']]['label']}", "ok")
@@ -1701,12 +2062,21 @@ def fetch_account_balance(access_token, jwt):
     if not access_token or not jwt:
         return None
     try:
+        headers = dict(LC79_HEADERS) if "LC79_HEADERS" in globals() else {"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {jwt}"}
+        headers["Authorization"] = f"Bearer {jwt}"
         response = requests.get(
             ACCOUNT_URL,
-            params={"cp": "R", "cl": "R", "pf": "web", "at": access_token},
-            headers={"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {jwt}"},
+            params={"cp": "R", "cl": "R", "pf": "web", "at": jwt},
+            headers=headers,
             timeout=8,
         )
+        if response.status_code != 200:
+            # Một số API triển khai cũ dùng accessToken cho trường at.
+            response = requests.get(
+                ACCOUNT_URL,
+                params={"cp": "R", "cl": "R", "pf": "web", "at": access_token},
+                headers=headers, timeout=8,
+            )
         if response.status_code != 200:
             return None
         data = response.json()
@@ -1751,6 +2121,15 @@ def login_and_get_token(u, p):
             return {"_error": "Không nhận được token phiên LC79"}
         money = fetch_account_balance(access, jwt)
         if money is None:
+            try:
+                profile_raw = _lc79_request(
+                    "GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt
+                )
+                profile = _unwrap_dict(profile_raw)
+                money = _parse_int_money(profile.get("balance"), None)
+            except Exception:
+                money = None
+        if money is None:
             remote = lobby.get("remoteLoginResp", {})
             try:
                 money = int(float(remote.get("money", 0)))
@@ -1764,6 +2143,33 @@ def login_and_get_token(u, p):
 # ============================================================
 # CHỐT PHIÊN, CƯỢC, WEBSOCKET
 # ============================================================
+def explain_round_reason(info, st):
+    """Chuyển lý do kỹ thuật thành giải thích dễ hiểu cho người dùng."""
+    raw = str(info.get("reason") or "").strip()
+    context = str(info.get("ctx") or "").strip()
+    mode_label = MODES.get(st.get("mode"), MODES[DEFAULT_MODE])["label"]
+    if raw.startswith("Cần thêm dữ liệu"):
+        return raw + ". Hệ thống cần thêm kết quả lịch sử để các mô hình có đủ mẫu kiểm chứng trước khi đặt cược."
+    if raw.startswith("Chưa đủ chắc"):
+        return f"Tín hiệu hiện tại chưa đạt ngưỡng của chế độ {mode_label}; hệ thống bỏ qua phiên này để tránh đặt cược khi lợi thế chưa rõ. Tín hiệu tham chiếu: {context or 'các mô hình đang phân tích lịch sử'}."
+    if "Khung 0h-5h" in raw:
+        return "Đang trong khung giờ hệ thống hạn chế áp dụng công thức; phiên này được bỏ qua để tránh dùng tín hiệu kém ổn định."
+    if raw.startswith("Thua ") and "tay" in raw:
+        count = raw.split("tay", 1)[0].replace("Thua", "").strip()
+        return f"Tài khoản vừa có chuỗi thua {count} tay; hệ thống tạm siết điều kiện và chờ tín hiệu rõ hơn trước khi cược tiếp."
+    if "tạm nghỉ" in raw.lower() or "cầu khó" in raw.lower():
+        return raw + ". Đây là khoảng nghỉ bảo vệ sau chuỗi tín hiệu khó; hệ thống chờ thêm kết quả mới trước khi đặt tiếp."
+    if "Hết suất nghỉ" in raw:
+        return raw + ". Ngân sách bỏ qua phiên trong cửa sổ gần đây đã dùng hết; cần chú ý quản trị rủi ro."
+    if raw:
+        return raw + (f". Tín hiệu chính: {context}." if context and context not in raw else "")
+    if context and "Chưa cách nào vượt ngẫu nhiên" in context:
+        return "Chưa có chiến lược riêng nào vượt kiểm định thống kê đủ rõ; mô hình kết hợp các tín hiệu lịch sử và chỉ đặt khi điều kiện chế độ cho phép."
+    if context:
+        return f"Tín hiệu tham chiếu từ mô hình: {context}. Hướng chọn được tính từ dữ liệu phiên đã nạp, không phải cam kết kết quả."
+    return "Hệ thống chưa có lý do chi tiết cho phiên này; nên chờ thêm dữ liệu kiểm chứng."
+
+
 def open_round(cid, sid, table=DEFAULT_TABLE):
     """Mở một ván trong đúng bàn, không dùng nhầm lịch sử bàn còn lại."""
     table = normalize_table(table) or DEFAULT_TABLE
@@ -1794,7 +2200,7 @@ def open_round(cid, sid, table=DEFAULT_TABLE):
                 "experts": info["experts"], "strat": info.get("strat", {}), "placed": False, "sent": False, "bet": 0,
                 "base": text, "status": [], "msg_id": None, "done": False,
                 "balance_before": int(st.get("balance") or 0), "balance_after_bet": None,
-                "reason": info.get("reason") or info.get("ctx") or ""}
+                "reason": explain_round_reason(info, st)}
         st["pending"] = pend
         # Hiện ngay trên lịch sử: dự đoán trước khi có kết quả
         pre = {
@@ -1808,7 +2214,7 @@ def open_round(cid, sid, table=DEFAULT_TABLE):
             "bet": 0,
             "won": None,
             "delta": None,
-            "reason": info.get("reason") or info.get("ctx") or "",
+            "reason": explain_round_reason(info, st),
             "time": vn_now().strftime("%H:%M:%S %d/%m/%Y"),
             "status": "pending",
         }
