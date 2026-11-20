@@ -442,24 +442,169 @@ def _lc79_credentials(cid=None):
     return cid, st, jwt, access
 
 
-def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15):
-    query = {"cp": "R", "cl": "R", "pf": "web", "at": jwt}
-    if params:
-        query.update(params)
-    response = requests.request(
-        method.upper(), url, params=query, json=payload,
-        headers=LC79_HEADERS, timeout=timeout,
+_jwt_refresh_guard = threading.RLock()
+_jwt_refresh_locks = {}
+_jwt_refresh_cache = {}
+
+
+def _api_payload_auth_expired(status_code, data):
+    """Nhận diện cả HTTP 401 lẫn API trả code 401 trong HTTP 200."""
+    if int(status_code or 0) in (401, 419):
+        return True
+    auth_codes = {"401", "419", "UNAUTHORIZED", "TOKEN_EXPIRED", "AUTH_EXPIRED", "JWT_EXPIRED"}
+    auth_words = (
+        "token expired", "jwt expired", "session expired", "unauthorized",
+        "invalid token", "token invalid", "phiên game hết hạn", "phiên đăng nhập hết hạn",
+        "hết phiên đăng nhập", "access token expired",
     )
-    try:
-        data = response.json()
-    except ValueError:
-        data = {"message": (response.text or "")[:300]}
-    if response.status_code == 401:
-        raise RuntimeError("Phiên game hết hạn. Hãy đăng xuất và đăng nhập lại")
+    stack = [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                k = str(key).lower()
+                if k in ("code", "status", "errorcode", "error_code") and str(value).upper() in auth_codes:
+                    return True
+                if k in ("message", "msg", "error", "detail") and any(w in str(value).lower() for w in auth_words):
+                    return True
+                if isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
+def _extract_lobby_jwt(raw):
+    if not isinstance(raw, dict):
+        return ""
+    body = _unwrap_dict(raw)
+    token = body.get("token") or body.get("jwt") or body.get("accessToken")
+    if not token:
+        token = raw.get("token") or raw.get("jwt")
+    return str(token or "").strip()
+
+
+def _refresh_lc79_jwt(old_jwt):
+    """Đổi JWT từ accessToken còn hiệu lực; lưu lại vào session DB dùng chung."""
+    now = time.time()
+    cached = _jwt_refresh_cache.get(str(old_jwt))
+    if cached and cached[1] > now:
+        return cached[0]
+
+    with _jwt_refresh_guard:
+        lock = _jwt_refresh_locks.setdefault(str(old_jwt), threading.RLock())
+    with lock:
+        now = time.time()
+        cached = _jwt_refresh_cache.get(str(old_jwt))
+        if cached and cached[1] > now:
+            return cached[0]
+
+        conn = _session_db()
+        try:
+            row = conn.execute(
+                "SELECT token,cid,username,nickname,access_token,jwt FROM web_sessions WHERE jwt=? AND exp>=? LIMIT 1",
+                (str(old_jwt), now),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            raise RuntimeError("Phiên truy cập LC79 đã hết hạn. Vui lòng đăng nhập lại tài khoản game.")
+
+        access = str(row["access_token"] or "").strip()
+        nickname = str(row["nickname"] or row["username"] or "").strip()
+        if not access or not nickname:
+            raise RuntimeError("Không thể làm mới phiên LC79. Vui lòng đăng nhập lại.")
+
+        try:
+            response = requests.post(
+                "https://wlb.tele68.com/v1/lobby/auth/login",
+                params={"cp": "R", "cl": "R", "pf": "web", "at": ""},
+                headers=LC79_HEADERS,
+                json={"nickName": nickname, "accessToken": access},
+                timeout=18,
+            )
+            try:
+                raw = response.json()
+            except ValueError:
+                raw = {"message": (response.text or "")[:200]}
+            if response.status_code >= 400 or _api_payload_auth_expired(response.status_code, raw):
+                raise RuntimeError("AccessToken LC79 không còn hiệu lực")
+            if isinstance(raw, dict) and raw.get("success") is False:
+                raise RuntimeError(str(raw.get("message") or "LC79 từ chối làm mới phiên")[:160])
+            new_jwt = _extract_lobby_jwt(raw)
+            if not new_jwt or new_jwt == str(old_jwt):
+                raise RuntimeError("LC79 không cấp JWT mới")
+        except Exception as exc:
+            log.warning("Làm mới JWT LC79 thất bại: %s", str(exc)[:150])
+            raise RuntimeError("Phiên truy cập LC79 đã hết hạn. Vui lòng đăng nhập lại tài khoản game.")
+
+        conn = _session_db()
+        try:
+            conn.execute("UPDATE web_sessions SET jwt=? WHERE token=? AND jwt=?",
+                         (new_jwt, row["token"], str(old_jwt)))
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Đồng bộ state trong tiến trình đang phục vụ request.
+        if "state_lock" in globals() and "get_state" in globals():
+            try:
+                for table in ("md5", "tx"):
+                    st = get_state(row["cid"], table)
+                    with state_lock:
+                        if st.get("access_token") == access:
+                            st["jwt"] = new_jwt
+            except Exception:
+                pass
+        _jwt_refresh_cache[str(old_jwt)] = (new_jwt, time.time() + 180)
+        # Giới hạn cache để không tăng vô hạn theo số lần refresh.
+        if len(_jwt_refresh_cache) > 128:
+            for key, value in list(_jwt_refresh_cache.items()):
+                if value[1] <= time.time():
+                    _jwt_refresh_cache.pop(key, None)
+        return new_jwt
+
+
+def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15, retry_auth=True):
+    base_query = {"cp": "R", "cl": "R", "pf": "web", "at": str(jwt or "")}
+    if params:
+        base_query.update(params)
+
+    def perform(token):
+        query = dict(base_query)
+        query["at"] = token
+        response = requests.request(
+            method.upper(), url, params=query, json=payload,
+            headers=LC79_HEADERS, timeout=timeout,
+        )
+        try:
+            body = response.json()
+        except ValueError:
+            body = {"message": (response.text or "")[:300]}
+        return response, body
+
+    active_jwt = str(jwt or "")
+    response, data = perform(active_jwt)
+    if _api_payload_auth_expired(response.status_code, data) and retry_auth:
+        active_jwt = _refresh_lc79_jwt(active_jwt)
+        response, data = perform(active_jwt)
+        if _api_payload_auth_expired(response.status_code, data):
+            raise RuntimeError("LC79 vẫn từ chối phiên mới. Vui lòng đăng nhập lại tài khoản game.")
+    elif _api_payload_auth_expired(response.status_code, data):
+        raise RuntimeError("Phiên truy cập LC79 đã hết hạn. Vui lòng đăng nhập lại tài khoản game.")
+
     if response.status_code >= 400:
         detail = data.get("message") if isinstance(data, dict) else None
         raise RuntimeError(str(detail or f"API LC79 trả mã HTTP {response.status_code}")[:240])
     return data
+
+
+def _is_lc79_session_expired_error(exc):
+    message = str(exc or "").lower()
+    return any(part in message for part in (
+        "phiên truy cập lc79 đã hết hạn", "lc79 vẫn từ chối phiên mới",
+        "access token lc79 không còn hiệu lực", "không thể làm mới phiên lc79",
+    ))
 
 
 def _unwrap_dict(data):
@@ -602,7 +747,7 @@ def dashboard_profile():
         })
     except Exception as exc:
         log.warning("Profile LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 @app.route("/api/dashboard/activity", methods=["GET"])
@@ -625,7 +770,7 @@ def dashboard_activity():
                         "has_more": len(rows) >= limit})
     except Exception as exc:
         log.warning("Activity LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 @app.route("/api/dashboard/banks", methods=["GET"])
@@ -645,7 +790,7 @@ def dashboard_banks():
         return jsonify({"ok": True, "banks": safe_banks})
     except Exception as exc:
         log.warning("Bank list LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 @app.route("/api/dashboard/withdraw-config", methods=["GET"])
@@ -666,7 +811,7 @@ def dashboard_withdraw_config():
                         "minimum": _parse_int_money(minimum, 0)})
     except Exception as exc:
         log.warning("Withdraw config LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 @app.route("/api/dashboard/deposit", methods=["POST"])
@@ -699,7 +844,7 @@ def dashboard_deposit():
         }})
     except Exception as exc:
         log.warning("Cash-in LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 @app.route("/api/dashboard/withdraw", methods=["POST"])
@@ -764,7 +909,7 @@ def dashboard_withdraw():
                         "bank": bank_code, "account": account_number[-4:].rjust(len(account_number), "•")})
     except Exception as exc:
         log.warning("Cash-out LC79 lỗi: %s", str(exc)[:160])
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": str(exc)}), (401 if _is_lc79_session_expired_error(exc) else 502)
 
 
 def run_web():
@@ -2237,24 +2382,38 @@ def login_and_get_token(u, p):
         if not jwt:
             detail = lobby.get("message") or (lobby_raw.get("message") if isinstance(lobby_raw, dict) else None)
             return {"_error": str(detail or "Không nhận được phiên đăng nhập LC79")[:180]}
-        money = fetch_account_balance(access, jwt)
+        # Bắt buộc xác minh JWT bằng API tài khoản trước khi báo đăng nhập thành công.
+        # Bản cũ chấp nhận JWT chưa được kiểm chứng rồi âm thầm gán số dư 0, khiến
+        # lỗi chỉ xuất hiện khi người dùng mở ví/tạo QR.
+        profile_raw = _lc79_request(
+            "GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt, retry_auth=False
+        )
+        profile = _unwrap_dict(profile_raw)
+        if isinstance(profile_raw, dict) and profile_raw.get("success") is False:
+            raise RuntimeError(str(profile_raw.get("message") or "LC79 chưa xác nhận được phiên đăng nhập")[:180])
+        profile_fields = {str(k).lower() for k in profile.keys()}
+        known_profile_fields = {
+            "balance", "money", "user_name", "username", "nick_name", "nickname",
+            "mobilephone", "mobile", "safe", "userid", "id",
+        }
+        if not profile or not (profile_fields & known_profile_fields):
+            raise RuntimeError("LC79 chưa xác nhận được phiên đăng nhập. Vui lòng thử đăng nhập lại.")
+
+        money = _parse_int_money(profile.get("balance", profile.get("money")), None)
         if money is None:
-            try:
-                profile_raw = _lc79_request("GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt)
-                money = _parse_int_money(_unwrap_dict(profile_raw).get("balance"), None)
-            except Exception:
-                money = None
+            money = fetch_account_balance(access, jwt)
         if money is None:
             remote = lobby.get("remoteLoginResp", {}) if isinstance(lobby, dict) else {}
-            try:
-                money = int(float(remote.get("money", 0)))
-            except (TypeError, ValueError):
-                money = 0
-        return {"token": str(jwt), "access": str(access), "nickname": nickname, "money": int(money or 0)}
+            remote_money = _parse_int_money(remote.get("money"), None) if isinstance(remote, dict) else None
+            if remote_money is None:
+                raise RuntimeError("Đăng nhập chưa được LC79 xác minh số dư. Vui lòng thử lại.")
+            money = remote_money
+        return {"token": str(jwt), "access": str(access), "nickname": nickname, "money": int(money)}
     except requests.RequestException as exc:
         return {"_error": "Không kết nối được máy chủ LC79. Vui lòng thử lại."}
     except Exception as exc:
-        return {"_error": "Đăng nhập chưa thành công. Vui lòng kiểm tra lại tài khoản hoặc thử lại."}
+        message = str(exc).strip()
+        return {"_error": message[:200] if message else "Đăng nhập chưa thành công. Vui lòng thử lại."}
 
 
 # ============================================================
