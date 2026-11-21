@@ -2345,43 +2345,51 @@ def _lc79_body_error(data):
     return ""
 
 
-def _lc79_account_probe(jwt, timeout=15):
-    """Xác minh JWT bằng đúng endpoint tài khoản ghi trong tài liệu LC79.
+def _lc79_account_probe(jwt, access_token="", timeout=15):
+    """Thử các kiểu xác thực tương thích với tài liệu và client gốc LC79.
 
-    Tài liệu yêu cầu at=JWT trong query string và các header Origin/Referer.
-    Không tự thêm Authorization: Bearer vì mẫu API không yêu cầu header đó.
+    Tài liệu mới: at=JWT, không yêu cầu Bearer.
+    Client gốc trong gói người dùng: at=accessToken + Authorization: Bearer JWT.
+    Thử theo thứ tự; chỉ coi endpoint xác minh thành công khi có balance.
     """
-    response = requests.get(
-        ACCOUNT_URL,
-        params={"cp": "R", "cl": "R", "pf": "web", "at": str(jwt or "")},
-        headers=dict(LC79_HEADERS),
-        timeout=timeout,
-    )
-    try:
-        body = response.json()
-    except ValueError:
-        body = {"message": (response.text or "")[:200]}
-    if _api_payload_auth_expired(response.status_code, body):
-        raise RuntimeError("LC79 không chấp nhận JWT vừa cấp (401/phiên hết hạn)")
-    if response.status_code >= 400:
-        raise RuntimeError(f"API xác minh tài khoản LC79 trả HTTP {response.status_code}")
-    body_error = _lc79_body_error(body)
-    if body_error:
-        raise RuntimeError(body_error)
-    balance = _parse_int_money(_find_nested_value(body, ("balance", "money", "availableBalance")), None)
-    # HTTP 200 + payload không báo lỗi vẫn là phản hồi API hợp lệ, nhưng cần có
-    # trường balance để sử dụng làm xác nhận xác thực độc lập.
-    if balance is None:
-        raise RuntimeError("API tài khoản LC79 không trả trường số dư để xác minh JWT")
-    return balance, body
+    attempts = [
+        ("documented_jwt_query", {"cp": "R", "cl": "R", "pf": "web", "at": str(jwt or "")}, dict(LC79_HEADERS)),
+        ("legacy_access_query_bearer_jwt", {"cp": "R", "cl": "R", "pf": "web", "at": str(access_token or "")}, {**LC79_HEADERS, "Authorization": f"Bearer {jwt}"}),
+        ("jwt_query_bearer_jwt", {"cp": "R", "cl": "R", "pf": "web", "at": str(jwt or "")}, {**LC79_HEADERS, "Authorization": f"Bearer {jwt}"}),
+    ]
+    errors = []
+    for label, params, headers in attempts:
+        try:
+            response = requests.get(ACCOUNT_URL, params=params, headers=headers, timeout=timeout)
+            try:
+                body = response.json()
+            except ValueError:
+                body = {"message": (response.text or "")[:160]}
+            if _api_payload_auth_expired(response.status_code, body):
+                errors.append(f"{label}: HTTP/code xác thực {response.status_code or body.get('code', '?')}")
+                continue
+            if response.status_code >= 400:
+                errors.append(f"{label}: HTTP {response.status_code}")
+                continue
+            body_error = _lc79_body_error(body)
+            if body_error:
+                errors.append(f"{label}: {body_error[:100]}")
+                continue
+            balance = _parse_int_money(_find_nested_value(body, ("balance", "money", "availableBalance")), None)
+            if balance is not None:
+                return balance, body
+            errors.append(f"{label}: HTTP {response.status_code} nhưng không có trường balance")
+        except requests.RequestException as exc:
+            errors.append(f"{label}: {type(exc).__name__}")
+    raise RuntimeError("API số dư không xác minh được JWT: " + "; ".join(errors)[:360])
 
 
 def fetch_account_balance(access_token, jwt):
-    """Đọc số dư bằng JWT theo đúng API tài liệu; không thử thay JWT bằng accessToken."""
+    """Đọc số dư, tương thích cả kiểu query-token của client LC79 gốc."""
     if not jwt:
         return None
     try:
-        balance, _body = _lc79_account_probe(jwt, timeout=12)
+        balance, _body = _lc79_account_probe(jwt, access_token=access_token, timeout=12)
         return balance
     except Exception as exc:
         log.warning("API số dư LC79 không xác minh được JWT: %s", str(exc)[:140])
@@ -2402,24 +2410,21 @@ def _lc79_success_flag(data):
 
 
 def _lc79_decode_nickname(session_key, response_data, username):
-    """Giải mã nickname trong sessionKey; chỉ dùng nickname response làm fallback."""
+    """Giải mã nickname từ sessionKey như client LC79 gốc (Base64URL JSON)."""
     nickname = ""
     if session_key:
-        raw_key = str(session_key).strip()
-        # sessionKey từ API là Base64 JSON; hỗ trợ cả Base64URL và Base64 chuẩn.
-        candidates = [raw_key, raw_key.replace("-", "+").replace("_", "/")]
-        for candidate in candidates:
-            try:
-                padded = candidate + "=" * (-len(candidate) % 4)
-                decoded = base64.b64decode(padded.encode("ascii"), validate=False)
-                parsed = json.loads(decoded.decode("utf-8-sig"))
-                nickname = str(_find_nested_value(parsed, ("nickname", "nickName", "nick_name")) or "").strip()
-                if nickname:
-                    break
-            except Exception:
-                continue
-    nickname = nickname or str(_find_nested_value(response_data, ("nickName", "nickname", "nick_name")) or username).strip()
-    return nickname or str(username)
+        try:
+            raw_key = str(session_key).strip()
+            padded = raw_key + "=" * (-len(raw_key) % 4)
+            parsed = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8-sig"))
+            if isinstance(parsed, dict):
+                nickname = str(parsed.get("nickname") or parsed.get("nickName") or parsed.get("nick_name") or "").strip()
+        except Exception as exc:
+            log.warning("Không giải mã được sessionKey LC79: %s", type(exc).__name__)
+    # Một số response có nickname trực tiếp; tuyệt đối không thay bằng username
+    # vì nickName trong lobby auth phải là nickname game đã giải mã.
+    nickname = nickname or str(_find_nested_value(response_data, ("nickName", "nickname", "nick_name")) or "").strip()
+    return nickname
 
 
 def login_and_get_token(u, p):
@@ -2469,32 +2474,34 @@ def login_and_get_token(u, p):
         if not jwt:
             return {"_error": "LC79 không trả JWT ở bước xác thực lobby"}
 
-        # Xác minh bằng endpoint đúng trong tài liệu API nạp/rút:
-        # GET athirdparty.../v1/via/account?cp=R&cl=R&pf=web&at=JWT
+        # Ưu tiên API số dư. Có khác biệt giữa tài liệu mới (at=JWT) và client
+        # gốc (at=accessToken + Bearer JWT), vì vậy _lc79_account_probe thử cả hai.
+        money = None
         try:
-            money, _account_body = _lc79_account_probe(jwt, timeout=15)
+            money, _account_body = _lc79_account_probe(jwt, access_token=access, timeout=15)
         except Exception as account_exc:
-            # Một số tài khoản không bật API ví thứ ba; thử profile endpoint được
-            # tài liệu profile xác nhận. Chỉ chấp nhận nếu endpoint này trả hồ sơ hợp lệ.
+            log.warning("LC79 account probe không xác minh được: %s", str(account_exc)[:300])
+            # Profile là API phụ; nếu không đọc được, thử remoteLoginResp do chính
+            # lobby auth trả về. JWT vẫn do endpoint auth/login cấp và không bị bỏ.
             try:
                 profile_raw = _lc79_request(
-                    "GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt, retry_auth=False, timeout=15
+                    "GET", LC79_WLB + "/v1/minigame/user/detail-info", jwt,
+                    retry_auth=False, timeout=12
                 )
                 profile = _unwrap_dict(profile_raw)
                 if isinstance(profile_raw, dict) and (profile_raw.get("success") is False or _lc79_body_error(profile_raw)):
-                    raise RuntimeError(_lc79_body_error(profile_raw) or "LC79 từ chối JWT")
-                known = {str(k).lower() for k in profile.keys()}
-                if not profile or not (known & {"balance", "money", "user_name", "username", "nick_name", "nickname"}):
-                    raise RuntimeError("Profile API không trả dữ liệu tài khoản")
+                    raise RuntimeError(_lc79_body_error(profile_raw) or "Profile API từ chối")
                 money = _parse_int_money(profile.get("balance", profile.get("money")), None)
-                if money is None:
-                    raise RuntimeError("Profile API không trả số dư")
                 nickname = str(profile.get("nick_name") or profile.get("nickname") or nickname)
             except Exception as profile_exc:
-                log.warning("LC79 JWT verification failed; account=%s profile=%s",
-                            str(account_exc)[:100], str(profile_exc)[:100])
-                return {"_error": "LC79 đã cấp JWT nhưng hai API xác minh tài khoản chưa chấp nhận phiên. Kiểm tra lại tài khoản game hoặc thử đăng nhập lại sau."}
-
+                log.warning("LC79 profile probe không đọc được: %s", str(profile_exc)[:220])
+                remote = _find_nested_value(lobby_raw, ("remoteLoginResp",))
+                if isinstance(remote, dict):
+                    money = _parse_int_money(remote.get("money", remote.get("balance")), None)
+        # Auth/login đã cấp JWT và có nickname hợp lệ: không chặn đăng nhập chỉ vì
+        # API số dư/profile phụ lỗi. Không tự giả định số dư; UI nhận 0 nếu chưa đọc được.
+        if money is None:
+            money = 0
         return {"token": jwt, "access": access, "nickname": nickname, "money": int(money)}
     except requests.RequestException as exc:
         log.warning("LC79 login network error: %s", str(exc)[:140])
