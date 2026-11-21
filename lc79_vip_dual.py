@@ -1,12 +1,9 @@
 import os
-import re
-import io
 import secrets
 import math
 import json
 import base64
 import hashlib
-import html
 import logging
 import threading
 import sqlite3
@@ -19,11 +16,6 @@ import requests
 import socketio
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-BOT_NAME = "LC79 VIP"
-
-# =========================
-# FLASK KEEP ALIVE (RENDER)
-# =========================
 app = Flask(__name__)
 
 
@@ -44,7 +36,7 @@ def logo_lc79():
 
 @app.route("/health")
 def health():
-    return {"status": "online", "bot": "LC79", "server": "Render", "dashboard": "/dashboard"}
+    return {"status": "online", "service": "LC79", "dashboard": "/dashboard"}
 
 
 # Phiên web lưu SQLite để mọi worker Gunicorn đều nhận ra cùng một token.
@@ -603,9 +595,14 @@ def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15, re
     def perform(token):
         query = dict(base_query)
         query["at"] = token
+
+        # CỰC KỲ QUAN TRỌNG: PHẢI CÓ AUTHORIZATION HEADER
+        headers = dict(LC79_HEADERS)
+        headers["Authorization"] = f"Bearer {token}"
+
         response = requests.request(
             method.upper(), url, params=query, json=payload,
-            headers=LC79_HEADERS, timeout=timeout,
+            headers=headers, timeout=timeout,
         )
         try:
             body = response.json()
@@ -615,21 +612,23 @@ def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15, re
 
     active_jwt = str(jwt or "")
     response, data = perform(active_jwt)
-    if _api_payload_auth_expired(response.status_code, data) and retry_auth:
-        active_jwt = _refresh_lc79_jwt(active_jwt)
-        response, data = perform(active_jwt)
+
+    if _api_payload_auth_expired(response.status_code, data):
+        # Thử refresh token 1 lần duy nhất
+        if retry_auth:
+            try:
+                active_jwt = _refresh_lc79_jwt(active_jwt)
+                response, data = perform(active_jwt)
+            except Exception:
+                raise RuntimeError(
+                    "Phiên đăng nhập LC79 đã bị ngắt (có thể do bạn đang mở App điện thoại). "
+                    "Vui lòng đăng nhập lại trên Web."
+                )
+
         if _api_payload_auth_expired(response.status_code, data):
-            # Ghi rõ endpoint/status/message để xác định chính xác API nào từ chối JWT.
-            detail = _lc79_body_error(data) if "_lc79_body_error" in globals() else ""
-            path = requests.utils.urlparse(url).path
-            log.warning("LC79 rejected refreshed JWT: method=%s path=%s http=%s body=%s",
-                        method.upper(), path, response.status_code, (detail or str(data))[:180])
             raise RuntimeError(
-                f"LC79 từ chối JWT mới tại {path} (HTTP {response.status_code}). "
-                f"{detail or 'Cần kiểm tra phản hồi API của endpoint này.'}"
+                "LC79 từ chối Token. Vui lòng không mở App trên điện thoại khi dùng Web."
             )
-    elif _api_payload_auth_expired(response.status_code, data):
-        raise RuntimeError("Phiên truy cập LC79 đã hết hạn. Vui lòng đăng nhập lại tài khoản game.")
 
     if response.status_code >= 400:
         detail = data.get("message") if isinstance(data, dict) else None
@@ -640,8 +639,14 @@ def _lc79_request(method, url, jwt, *, params=None, payload=None, timeout=15, re
 def _is_lc79_session_expired_error(exc):
     message = str(exc or "").lower()
     return any(part in message for part in (
-        "phiên truy cập lc79 đã hết hạn", "lc79 vẫn từ chối phiên mới",
-        "access token lc79 không còn hiệu lực", "không thể làm mới phiên lc79",
+        "phiên truy cập lc79 đã hết hạn",
+        "lc79 vẫn từ chối phiên mới",
+        "access token lc79 không còn hiệu lực",
+        "không thể làm mới phiên lc79",
+        "phiên đăng nhập lc79 đã bị ngắt",
+        "lc79 từ chối token",
+        "đang mở app điện thoại",
+        "mở app trên điện thoại",
     ))
 
 
@@ -1054,10 +1059,6 @@ user_states = {}
 # ============================================================
 # LOG + SỰ KIỆN THÔNG BÁO WEB
 # ============================================================
-def esc(s):
-    return html.escape(str(s), quote=False)
-
-
 def push_event(cid, title, body="", kind="info"):
     try:
         root = user_states.get(cid)
@@ -1073,20 +1074,8 @@ def push_event(cid, title, body="", kind="info"):
         })
         if len(events) > 30:
             del events[:-30]
-    except Exception as e:
-        log.debug("push_event: %s", e)
-
-
-def say(cid, text, force=False):
-    msg = re.sub(r"<[^>]+>", "", str(text))
-    log.info("[%s] %s", cid, short(msg, 160))
-    if force:
-        push_event(cid, "Hệ thống", short(msg, 120), "info")
-
-
-def kv(rows):
-    width = max((len(k) for k, _ in rows), default=0)
-    return chr(10).join(f"{k:<{width}}  {v}" for k, v in rows)
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -1147,15 +1136,6 @@ def parse_amount(s):
     return value
 
 
-def parse_kv(text):
-    out = {}
-    for tok in text.split()[1:]:
-        if "=" in tok:
-            k, v = tok.split("=", 1)
-            out[norm(k)] = v.strip()
-    return out
-
-
 def fmt(n):
     return f"{int(round(n)):,}".replace(",", ".")
 
@@ -1169,31 +1149,8 @@ def signed(n):
     return "0"
 
 
-def bar(p, width=10):
-    p = max(0.0, min(1.0, p))
-    filled = round(p * width)
-    return "█" * filled + "░" * (width - filled)
-
-
 def side_label(side):
     return "TÀI" if side == TAI else "XỈU"
-
-
-def side_icon(side):
-    return "⚫" if side == TAI else "⚪"
-
-
-def trail(seq, n=10):
-    return "".join("🔵" if x == TAI else "🔴" for x in seq[-n:])
-
-
-
-
-def dice_faces(dice):
-    """Xúc xắc hiển thị bằng icon 🎲 kèm số mặt, không dùng glyph ⚀-⚅ (đen trắng)."""
-    if not dice:
-        return "?"
-    return " ".join(f"🎲{x}" for x in dice)
 
 
 # ============================================================
@@ -1382,8 +1339,7 @@ def db_pattern_pred(results):
     return None
 
 
-# Mẫu 2: bảng 8 ván. Đếm trực tiếp từ lịch sử của chính bot (không dùng bảng tĩnh,
-# vì bảng tĩnh được đếm trên toàn bộ dữ liệu nên nhìn thấy tương lai và cho kết quả giả).
+# Mẫu 2: bảng 8 ván — đếm walk-forward từ lịch sử đã nạp (tránh nhìn tương lai).
 def bang8_counts_from(seq):
     counts = {}
     for i in range(len(seq) - 8):
@@ -2102,107 +2058,6 @@ def _set_auto(cid, table, enabled, amount=None, params=None):
     return True, f"Đã tắt Auto {TABLES[table]['label']}"
 
 
-# ============================================================
-# NỘI DUNG CÁC Ô
-# ============================================================
-RULE = "─" * 30
-
-
-def confidence_label(c):
-    if c >= 0.90:
-        return "rất mạnh"
-    if c >= 0.75:
-        return "mạnh"
-    if c >= 0.55:
-        return "vừa"
-    return "yếu"
-
-
-def hx(v):
-    return html.escape(str(v), quote=False)
-
-
-def streak_icons(count, icon, limit=5):
-    if count <= 0:
-        return "—"
-    return f"{icon * min(count, limit)}  ×{count}"
-
-
-def prediction_text(sid, info, st):
-    """Thẻ tín hiệu gọn: chỉ bàn, phiên, cửa dự đoán và mức cược."""
-    mode = MODES[st["mode"]]
-    if info.get("side") is None:
-        return "\n".join([
-            f"✨ <b>{hx(TABLES[st['table']]['label'])}</b>",
-            f"🧾 Phiên <b>#{hx(sid)}</b>",
-            "⏸️ <b>TẠM BỎ QUA</b>",
-        ])
-    side = info["side"]
-    return "\n".join([
-        f"╭━━━ ✨ <b>LC79 VIP PRO</b> ━━━╮",
-        f"{('🔷' if st['table'] == 'md5' else '🟣')} <b>{hx(TABLES[st['table']]['label'])}</b>",
-        f"🧾 Phiên <b>#{hx(sid)}</b>",
-        "",
-        f"🎯 DỰ ĐOÁN  <b>{hx(side_label(side))} {side_icon(side)}</b>",
-        f"💎 MỨC CƯỢC  <b>{fmt(current_bet(st))}</b>",
-        f"⚙️ CHẾ ĐỘ  <b>{hx(mode['label'])}</b>",
-        "╰━━━━━━━━━━━━━━━━━━━━╯",
-    ])
-
-
-def result_text(rec, st):
-    """Thẻ kết quả: kết quả và số liệu in đậm, mô tả nhạt."""
-    eng = st["engine"]
-    total = f"  ·  tổng {rec['total']}" if rec.get("total") is not None else ""
-    lines = [f"<b>🎲 Kết quả phiên #{hx(rec['sid'])}</b>",
-             f"{hx(dice_faces(rec['dice']))}{total}  →  <b>{hx(side_label(rec['res']))}</b>", ""]
-    if rec["pred"] is None:
-        det = "<i>Phiên này bot không đoán.</i>"
-    elif rec["pred_ok"]:
-        det = f"Bot đoán <b>{hx(side_label(rec['pred']))}</b>  →  <b>đúng ✅</b>"
-    else:
-        det = f"Bot đoán <b>{hx(side_label(rec['pred']))}</b>  →  <b>sai ❌</b>"
-    if rec["placed"]:
-        verdict = "thắng ✅" if rec["won"] else "thua ❌"
-        delta_txt = signed(rec["delta"]) if rec.get("delta") is not None else "chưa đối soát số dư thật"
-        cuoc = f"Bạn cược <b>{fmt(rec['bet'])}</b>  →  <b>{verdict}</b> · biến động <b>{hx(delta_txt)}</b>"
-    else:
-        cuoc = "<i>Phiên này chưa đặt cược.</i>"
-    total_bets = st["total_win"] + st["total_lose"]
-    wr = st["total_win"] / total_bets * 100 if total_bets else 0
-    lines += [f"<blockquote>{det}\n{cuoc}</blockquote>",
-              f"<blockquote>Lãi/lỗ tài khoản <b>{signed(st['profit'])}</b>\n"
-              f"🔥 Thắng liên <b>{hx(streak_icons(st['win_streak'], '🔥'))}</b>  ·  🧊 Thua liên <b>{hx(streak_icons(st['lose_streak'], '🧊'))}</b>\n"
-              f"Tỷ lệ thắng <b>{wr:.1f}%</b> <i>({st['total_win']}/{total_bets})</i>\n"
-              f"Đoán đúng <b>{eng.accuracy():.1f}%</b> <i>({len(eng.perf)} lần)</i></blockquote>",
-              trail(eng.results(), 10) or "—"]
-    return "\n".join(lines)
-
-
-def line(icon, label, value):
-    return f"{icon} {hx(label)}  <b>{hx(value)}</b>"
-
-
-def card(icon, title, rows=None, note=None, footer=None):
-    out = [f"{icon} <b>{hx(title)}</b>"]
-    if rows:
-        out.append("<blockquote>" + "\n".join(rows) + "</blockquote>")
-    if note:
-        out.append(f"<i>{hx(note)}</i>")
-    if footer:
-        out += ["", footer]
-    return "\n".join(out)
-
-
-def _runs_text(seq):
-    r = runs_test(seq[-200:])
-    if r is None:
-        return "chưa đủ dữ liệu"
-    p, R, mu = r
-    verdict = "bất thường ⚠️" if p < 0.05 else "bình thường ✅"
-    return f"p={p:.3f} · {verdict}"
-
-
 def apply_shared_balance(st, balance):
     """Cập nhật số dư API thật cho cả hai bàn dùng cùng tài khoản."""
     if balance is None:
@@ -2223,70 +2078,6 @@ def refresh_state_balance(st):
     if balance is not None:
         apply_shared_balance(st, balance)
     return balance
-
-
-def account_text(st):
-    eng = st["engine"]
-    total = st["total_win"] + st["total_lose"]
-    wr = st["total_win"] / total * 100 if total else 0
-    ll = eng.logloss()
-    ll_txt = f"{ll:.3f}  (ngẫu nhiên 0.693)" if ll is not None else "chưa đủ dữ liệu"
-    head = f"👤 <b>Tài khoản {hx(st['nickname'] or '—')}</b>"
-    rows1 = [
-        line("🔌", "Kết nối", "đang chạy" if st["running"] else "chưa đăng nhập"),
-        line("🤖", "Tự động", "đang bật" if st["auto"] else "đang tắt"),
-        line("🧭", "Chế độ", MODES[st["mode"]]["label"]),
-        line("💰", "Cược gốc", fmt(st["base_bet"])),
-        line("💳", "Số dư", fmt(st["balance"])),
-        line("📈", "Lãi/lỗ", signed(st["profit"])),
-    ]
-    rows2 = [
-        line("🏆", "Thắng/thua", f"{st['total_win']} / {st['total_lose']}  ({wr:.1f}%)"),
-        line("🔥", "Thắng liên", streak_icons(st["win_streak"], "🔥")),
-        line("🧊", "Thua liên", streak_icons(st["lose_streak"], "🧊")),
-        line("🎯", "Đoán đúng", f"{eng.accuracy():.1f}%  trên {len(eng.perf)} phiên"),
-        line("📐", "EV dự báo", f"{eng.expected_roi() * 100:+.1f}% (ước tính mô hình)"),
-        line("📉", "Sai số", ll_txt),
-        line("🧬", "Tính ngẫu nhiên", _runs_text(eng.results())),
-        line("📚", "Đã nạp", f"{len(eng.recs)} phiên · tạm nghỉ {eng.pause_events} đợt"),
-    ]
-    return "\n".join([
-        head, "",
-        "<blockquote>" + "\n".join(rows1) + "</blockquote>",
-        "<blockquote>" + "\n".join(rows2) + "</blockquote>",
-        trail(eng.results(), 10) or "—",
-    ])
-
-
-def lichsu_text(rows, n):
-    recent = rows[-n:]
-    lines_ = []
-    for r in reversed(recent):
-        icon = "⏭️" if r["pred"] is None else ("✅" if r["pred_ok"] else "❌")
-        pred = "không đoán" if r["pred"] is None else f"đoán {side_label(r['pred'])}"
-        delta_txt = signed(r["delta"]) if r.get("delta") is not None else "chưa đối soát"
-        bet = "không cược" if not r["placed"] else f"cược {fmt(r['bet'])} · {delta_txt}"
-        lines_.append(f"{icon} <b>#{hx(r['sid'])}</b>  KQ {hx(side_label(r['res']))}  ·  {hx(pred)}  ·  {hx(bet)}")
-    scored = [r for r in rows if r["pred"] is not None]
-    hit = sum(1 for r in scored if r["pred_ok"])
-    placed = [r for r in rows if r["placed"]]
-    wins = sum(1 for r in placed if r["won"])
-    known_deltas = [r["delta"] for r in placed if r.get("delta") is not None]
-    profit = sum(known_deltas)
-    unverified = len(placed) - len(known_deltas)
-    pct = hit / len(scored) * 100 if scored else 0
-    summary = [
-        line("🎯", "Đoán đúng", f"{hit} / {len(scored)}  ({pct:.1f}%)"),
-        line("💵", "Đã cược", f"{len(placed)} lần · 🏆 {wins} thắng · 💥 {len(placed) - wins} thua"),
-        line("📈", "Biến động đã đối soát", f"{signed(profit)} · chưa đối soát {unverified}"),
-    ]
-    return "\n".join([
-        f"📜 <b>Lịch sử {len(recent)} phiên gần nhất</b>", "",
-        "<blockquote>" + "\n".join(lines_) + "</blockquote>",
-        "<blockquote>" + "\n".join(summary) + "</blockquote>",
-    ])
-
-
 
 
 # ============================================================
@@ -2442,10 +2233,13 @@ def _lc79_body_error(data):
 
 def _lc79_account_probe(jwt, timeout=15):
     """Ping JWT qua detail-info theo đúng tài liệu Tele68/LC79."""
+    token = str(jwt or "")
+    headers = dict(LC79_HEADERS)
+    headers["Authorization"] = f"Bearer {token}"
     response = requests.get(
         ACCOUNT_URL,
-        params={"cp": "R", "cl": "R", "pf": "web", "at": str(jwt or "")},
-        headers=dict(LC79_HEADERS),
+        params={"cp": "R", "cl": "R", "pf": "web", "at": token},
+        headers=headers,
         timeout=timeout,
     )
     try:
@@ -2453,7 +2247,9 @@ def _lc79_account_probe(jwt, timeout=15):
     except ValueError:
         body = {"message": (response.text or "")[:200]}
     if _api_payload_auth_expired(response.status_code, body):
-        raise RuntimeError("LC79 từ chối JWT tại detail-info (401/phiên không hợp lệ)")
+        raise RuntimeError(
+            "LC79 từ chối Token. Vui lòng không mở App trên điện thoại khi dùng Web."
+        )
     if response.status_code >= 400:
         raise RuntimeError(f"API detail-info LC79 trả HTTP {response.status_code}")
     body_error = _lc79_body_error(body)
@@ -2646,30 +2442,20 @@ def open_round(cid, sid, table=DEFAULT_TABLE):
                 info["side"] = None
                 info["reason"] = f"Thua {lose_n} tay · chờ chắc ≥{need_rec:.0%} (hiện {p_side:.0%})"
                 p_side = info["p"] if info.get("p_tai", 0.5) >= 0.5 else 1 - info.get("p_tai", 0.5)
-        text = f"<b>{TABLES[table]['label']}</b>\n" + prediction_text(sid, info, st)
-        pend = {"sid": sid, "table": table, "pred": info["side"], "p_side": p_side, "p_tai": info["p_tai"],
-                "experts": info["experts"], "strat": info.get("strat", {}), "placed": False, "sent": False, "bet": 0,
-                "base": text, "status": [], "msg_id": None, "done": False,
-                "balance_before": int(st.get("balance") or 0), "balance_after_bet": None,
-                "reason": explain_round_reason(info, st)}
-        st["pending"] = pend
-        # Hiện ngay trên lịch sử: dự đoán trước khi có kết quả
-        pre = {
-            "sid": sid,
-            "pred": info.get("side"),
-            "res": None,
-            "dice": None,
-            "total": None,
-            "pred_ok": None,
-            "placed": False,
-            "bet": 0,
-            "won": None,
-            "delta": None,
-            "reason": explain_round_reason(info, st),
-            "time": vn_now().strftime("%H:%M:%S %d/%m/%Y"),
-            "status": "pending",
+        reason = explain_round_reason(info, st)
+        pend = {
+            "sid": sid, "table": table, "pred": info["side"], "p_side": p_side, "p_tai": info["p_tai"],
+            "experts": info["experts"], "strat": info.get("strat", {}), "placed": False, "sent": False, "bet": 0,
+            "status": [], "done": False,
+            "balance_before": int(st.get("balance") or 0), "balance_after_bet": None,
+            "reason": reason,
         }
-        # cập nhật nếu sid đã có, không thì append
+        st["pending"] = pend
+        pre = {
+            "sid": sid, "pred": info.get("side"), "res": None, "dice": None, "total": None,
+            "pred_ok": None, "placed": False, "bet": 0, "won": None, "delta": None,
+            "reason": reason, "time": vn_now().strftime("%H:%M:%S %d/%m/%Y"), "status": "pending",
+        }
         logs = st["bet_log"]
         updated = False
         for i in range(len(logs) - 1, -1, -1):
@@ -2694,8 +2480,7 @@ def poll_round(cid, arr, table=DEFAULT_TABLE):
     sid_last = last["session"]
     if not st.get("poll_on"):
         st["poll_on"] = True
-        say(cid, "Websocket chưa gửi phiên mới. Bot đang theo dõi qua lịch sử. "
-                 "Cược tự động cần websocket hoạt động.", force=True)
+        push_event(cid, "Websocket", "Chưa có phiên mới · theo dõi qua lịch sử", "warn")
     to_settle = None
     with state_lock:
         if st.get("poll_last_id") == sid_last:
@@ -2715,29 +2500,14 @@ def poll_round(cid, arr, table=DEFAULT_TABLE):
         open_round(cid, next_sid, table)
 
 
-def render_pending(pend):
-    if not pend["status"]:
-        return pend["base"]
-    return pend["base"] + "\n\n<b>Trạng thái</b>\n" + "\n".join(hx(x) for x in pend["status"])
-
-
-def card_edit(cid, mid, text):
-    return
-
-
-
 def pend_status(cid, pend, line):
-    """Thêm một dòng trạng thái vào đúng tin nhắn dự đoán của ván đó, rồi sửa tin."""
     if pend is None:
         return
     with state_lock:
         if pend.get("done"):
             return
-        pend["status"] = (pend["status"] + [line])[-4:]
-        text = render_pending(pend)
-        mid = pend.get("msg_id")
-    if mid:
-        card_edit(cid, mid, text)
+        pend["status"] = (pend["status"] + [str(line)])[-4:]
+    push_event(cid, "Cược", str(line)[:120], "info")
 
 
 def short(x, n=28):
@@ -2762,7 +2532,6 @@ def settle_round(cid, res, ws_dices, pend, table=DEFAULT_TABLE):
             if pend.get("pred") is not None:
                 st["engine"].record(pend["pred"], pend.get("p_side", 0.5), res)
             pend["done"] = True
-        mid = pend.get("msg_id") if pend else None
         pred = pend.get("pred") if pend else None
         pred_ok = None if pred is None else (pred == res)
         placed = bool(pend and pend.get("placed"))
@@ -2818,7 +2587,7 @@ def settle_round(cid, res, ws_dices, pend, table=DEFAULT_TABLE):
                     for other in root["tables"].values():
                         if other.get("access_token") == st.get("access_token") and other.get("jwt") == st.get("jwt"):
                             other["auto"] = False
-            say(cid, "⚠️ Không đối soát được số dư sau cược. Auto hai bàn đã tạm tắt để tránh đặt tiếp bằng số dư cũ.", force=True)
+            push_event(cid, "Số dư", "Không đối soát được sau cược · Auto đã tắt", "warn")
         release_bet_reservation(cid, pend)
         reason = ""
         try:
@@ -2831,20 +2600,11 @@ def settle_round(cid, res, ws_dices, pend, table=DEFAULT_TABLE):
             reason = ""
         rec = {
             "sid": sid if sid is not None else "?",
-            "pred": pred,
-            "res": res,
-            "dice": dice,
+            "pred": pred, "res": res, "dice": dice,
             "total": sum(dice) if dice else (matched.get("total") if matched else None),
-            "pred_ok": pred_ok,
-            "placed": placed,
-            "bet": bet,
-            "won": won,
-            "delta": delta,
-            "reason": reason,
-            "time": vn_now().strftime("%H:%M:%S %d/%m/%Y"),
-            "status": "done",
+            "pred_ok": pred_ok, "placed": placed, "bet": bet, "won": won, "delta": delta,
+            "reason": reason, "time": vn_now().strftime("%H:%M:%S %d/%m/%Y"), "status": "done",
         }
-        # Ghi đè dòng pending cùng sid (đã hiện dự đoán trước đó)
         logs = st["bet_log"]
         updated = False
         for i in range(len(logs) - 1, -1, -1):
@@ -2855,22 +2615,13 @@ def settle_round(cid, res, ws_dices, pend, table=DEFAULT_TABLE):
         if not updated:
             logs.append(rec)
         st["last_result"] = rec
-        # Gấp thếp: thua thì tăng bậc, thắng/reset khi đúng hoặc không đặt
         if st.get("martingale"):
-            if placed and pred_ok is False:
-                st["mg_step"] = min(8, int(st.get("mg_step") or 0) + 1)
-            else:
-                st["mg_step"] = 0
+            st["mg_step"] = min(8, int(st.get("mg_step") or 0) + 1) if (placed and pred_ok is False) else 0
         persist_logs(cid, table, st["bet_log"])
         if placed:
             movement = signed(delta) if delta is not None else "chưa đối soát số dư"
-            if pred_ok:
-                push_event(cid, f"Thắng {TABLES[table]['label']}", movement, "ok")
-            else:
-                push_event(cid, f"Thua {TABLES[table]['label']}", movement, "warn")
-        text = f"<b>{TABLES[table]['label']}</b>\n" + result_text(rec, st)
-    if mid:
-        card_edit(cid, mid, text)
+            push_event(cid, f"{'Thắng' if pred_ok else 'Thua'} {TABLES[table]['label']}", movement,
+                       "ok" if pred_ok else "warn")
 
 
 
@@ -2883,11 +2634,11 @@ def handle_ack(cid, data, pend, table=DEFAULT_TABLE):
         or data.get("status") in (False, 0, "error", "fail", "failed"))
     if rejected:
         release_bet_reservation(cid, pend)
-        line = f"❌ Server từ chối: {short(data)}"
+        line = f"Server từ chối: {short(data)}"
     elif data is None:
-        line = "⏳ Chờ server xác nhận..."
+        line = "Chờ server xác nhận..."
     else:
-        line = "✅ Server đã nhận cược"
+        line = "Server đã nhận cược"
         with state_lock:
             if not pend["placed"]:
                 pend["placed"] = True
@@ -2920,9 +2671,9 @@ def start_websocket(cid, token, table=DEFAULT_TABLE):
         if arr:
             with state_lock:
                 st["engine"].ingest(arr)
-            say(cid, f"{TABLES[table]['label']} đã kết nối · {len(st['engine'].recs)} phiên", force=True)
+            push_event(cid, TABLES[table]["label"], f"Đã kết nối · {len(st['engine'].recs)} phiên", "ok")
         else:
-            say(cid, f"⚠️ {TABLES[table]['label']} đã nối WebSocket nhưng API lịch sử chưa trả phiên; bot sẽ thử lại.", force=True)
+            push_event(cid, TABLES[table]["label"], "WebSocket OK nhưng chưa có lịch sử", "warn")
 
     @sio.on("new-session", namespace=cfg["namespace"])
     def new_sess(d):
@@ -2962,7 +2713,7 @@ def start_websocket(cid, token, table=DEFAULT_TABLE):
                 pend["balance_before"] = int(st.get("balance") or 0)
                 pred = pend["pred"]
         if block:
-            pend_status(cid, pend, f"⛔ Tự tắt: {short(block, 24)}")
+            pend_status(cid, pend, f"Tự tắt: {short(block, 24)}")
             return
         pend_status(cid, pend, f"Gửi {side_label(pred)} {fmt(amount)}")
         push_event(cid, f"Cược {TABLES[table]['label']}", f"{side_label(pred)} · {fmt(amount)}", "bet")
@@ -2995,11 +2746,11 @@ def start_websocket(cid, token, table=DEFAULT_TABLE):
                     st["total_bet"] += pend["bet"]
                     confirmed = True
         if confirmed:
-            pend_status(cid, pend, f"✅ Cược thành công, số dư {fmt(d['postBalance'])}")
+            pend_status(cid, pend, f"Cược thành công, số dư {fmt(d['postBalance'])}")
         elif pend is not None:
             pend_status(cid, pend, f"Server: {short(d)}")
         else:
-            say(cid, f"Phản hồi từ server:\n{d}", force=True)
+            push_event(cid, "Server", short(d, 120), "info")
 
     @sio.on("session-result", namespace=cfg["namespace"])
     def sr(d):
@@ -3019,7 +2770,7 @@ def start_websocket(cid, token, table=DEFAULT_TABLE):
     @sio.on("connect_error")
     def connect_error(data):
         st["ws_connected"] = False
-        say(cid, f"Không kết nối được websocket: {str(data)[:80]}", force=True)
+        push_event(cid, "WebSocket", f"Không kết nối: {str(data)[:80]}", "warn")
 
     try:
         sio.connect(cfg["ws_url"], socketio_path=cfg["ws_path"], namespaces=[cfg["namespace"]],
@@ -3028,7 +2779,7 @@ def start_websocket(cid, token, table=DEFAULT_TABLE):
         sio.wait()
     except Exception as e:
         st["ws_connected"] = False
-        say(cid, f"Mất kết nối WebSocket: {e}", force=True)
+        push_event(cid, "WebSocket", f"Mất kết nối: {str(e)[:80]}", "warn")
 
 
 def release_bet_reservation(cid, pend):
@@ -3078,24 +2829,8 @@ def sync_loop(cid, table, generation):
 
 
 
-# ============================================================
-# LỆNH
-# ============================================================
-def auto_status_text(cid):
-    rows = []
-    for table in ("md5", "tx"):
-        st = get_state(cid, table)
-        rows.append(line("🔷" if table == "md5" else "🟣", TABLES[table]["label"],
-                         ("🟢 AUTO ON" if st["auto"] else "⚪ AUTO OFF") + f" · cược {fmt(st['base_bet'])}"))
-    return card("🎛️", "BẢNG ĐIỀU KHIỂN AUTO", rows,
-                note="Hai bàn có lịch sử, thuật toán và streak riêng; số dư tài khoản dùng chung.")
-
-
-
-# ENTRYPOINT RENDER: chạy Flask web dashboard
-# ============================================================
 def main():
-    log.info("LC79 VIP Web-only · Flask trên PORT=%s", os.environ.get("PORT", "10000"))
+    log.info("LC79 VIP Web · PORT=%s", os.environ.get("PORT", "10000"))
     run_web()
 
 
