@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#1a120c">
-<title>htungdz-autocuoc</title>
+<title>LC79 VIP</title>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -406,6 +406,57 @@ body{background:
 @keyframes topbarEnter{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.metric-card,.bank-item,.wallet-submit::after{animation:none!important}.metric-card:hover,.bank-item:hover{transform:none}}
 
+
+/* UI v2: compact square information layout */
+:root{--radius:4px}
+.metric-card,.panel,.amount-control,.stake-mode,.wallet-dialog,.wallet-input,.wallet-select,.wallet-action,.outline-button,.danger-button,.secondary-wide{border-radius:4px!important}
+.dashboard-content{width:min(1240px,100% - 32px);padding-top:22px}
+.metrics-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.metric-card{min-width:0;padding:15px;border:1px solid #74371d;box-shadow:0 10px 28px #0003}
+.metric-value{font-size:clamp(20px,2.4vw,27px);overflow-wrap:anywhere}
+.metric-actions{margin-top:14px}.metric-actions .wallet-action{width:100%;justify-content:center;min-height:40px;font-size:11px;letter-spacing:.05em}
+.amount-control,.stake-mode{min-height:44px;border:1px solid var(--line);background:#160805}
+.amount-control input{min-width:0;font-weight:800;font-variant-numeric:tabular-nums}
+.dashboard-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.panel{box-shadow:0 10px 30px #0003}
+.round-history-list{display:grid;gap:8px;padding:10px}
+.round-card{display:grid;gap:9px;padding:12px;border:1px solid #5f2915;border-radius:4px;background:linear-gradient(120deg,#211009,#120805);animation:rowIn .25s both}
+.round-card-head,.round-card-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.round-card-meta{color:var(--muted);font-size:10px;line-height:1.5}
+.round-card-title{font-size:12px;font-weight:900;color:var(--cream)}
+.round-card-reason{padding:8px 9px;background:#2a1b0c;border-left:2px solid var(--gold);font-size:11px;line-height:1.55;color:#f0cf9d;overflow-wrap:anywhere}
+.round-card-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.round-value{min-width:0;padding:8px;border:1px solid #4e2414;background:#160a06}
+.round-value span{display:block;color:var(--muted);font-size:9px;letter-spacing:.05em;margin-bottom:3px}
+.round-value strong{font-size:15px;font-weight:900;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.money-balance,.money-positive,.money-negative{font-weight:900!important;font-variant-numeric:tabular-nums}
+.log-table{min-width:0}
+.activity-table{min-width:0;width:100%}
+.activity-table td{font-size:11px;padding:10px 9px}
+.wallet-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.wallet-tab{min-width:0;padding:12px 6px;font-size:10px}
+.account-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.account-info-cell{min-width:0;padding:12px;border:1px solid #633018;background:#1b0b06;border-radius:4px}
+.account-info-cell span{display:block;color:var(--muted);font-size:9px;letter-spacing:.07em;margin-bottom:7px}
+.account-info-cell strong{display:block;color:var(--cream);font-size:13px;font-weight:900;overflow-wrap:anywhere}
+.account-mini{padding:11px 12px;border:1px solid #633018;background:#1b0b06;border-radius:4px;color:var(--cream2);font-size:11px;line-height:1.55;margin:8px 0}
+.logout-mask{display:none;position:fixed;inset:0;z-index:120;place-items:center;padding:20px;background:#080403c9;backdrop-filter:blur(8px)}
+.logout-mask.show{display:grid}
+.logout-dialog{border-radius:4px!important;width:min(100%,390px);text-align:left;animation:fade-in .2s both}
+.logout-symbol{width:48px;height:48px;display:grid;place-items:center;border:1px solid #79341b;background:#2a1008;color:var(--gold);margin-bottom:15px}
+@media(max-width:800px){.metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.dashboard-content{width:calc(100% - 20px);padding-top:14px}.topbar{height:58px}.connection-state{display:none}.metrics-grid{gap:7px}.metric-card{padding:11px}.metric-value{font-size:20px}.metric-foot{font-size:9px}.round-card{padding:10px}.round-card-values{grid-template-columns:repeat(2,minmax(0,1fr))}.wallet-dialog{max-height:92dvh}.account-info-grid{gap:6px}.account-info-cell{padding:10px}.activity-table{display:block;overflow-x:auto}.activity-table table{min-width:0}}
+
+.security-good{color:#68d69a!important}.security-bad{color:#ff806b!important}
+
+.activity-cards{display:grid;gap:7px;padding:10px}
+.activity-card{min-width:0;padding:11px;border:1px solid #5f2915;border-radius:4px;background:linear-gradient(120deg,#211009,#120805);animation:rowIn .25s both}
+.activity-card-top,.activity-card-bottom{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap}
+.activity-service{display:block;margin:8px 0 3px;color:var(--cream);font-size:12px;font-weight:900;overflow-wrap:anywhere}
+.activity-description{color:var(--muted);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+.activity-card-bottom{margin-top:9px;padding-top:8px;border-top:1px solid #492011}
+.activity-card-bottom>strong{font-size:15px;font-weight:900}.activity-card-bottom>span{font-size:10px;color:var(--muted)}.activity-card-bottom b{color:var(--cream);font-weight:900}
+
 </style>
 </head>
 <body>
@@ -516,9 +567,10 @@ body{background:
         <div class="metric-foot" id="h-nick">—</div>
         <div class="metric-foot" id="h-safe">Ví an toàn: —</div>
         <div class="metric-actions">
-          <button class="wallet-action" type="button" onclick="openWallet('deposit')">＋ Nạp tiền</button>
-          <button class="wallet-action alt" type="button" onclick="openWallet('withdraw')">↗ Rút tiền</button>
-          <button class="wallet-action alt" type="button" onclick="openWallet('banks')">⌂ Ngân hàng</button>
+          <button class="wallet-action" type="button" onclick="openWallet('deposit')" aria-label="Mở ví nạp và rút">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="5.2" width="18.4" height="14.2" rx="2.2"/><path d="M3 8.5h18M15.5 13h2.2M6.5 5.2V3.8h11v1.4"/><path d="M8 12.2l2 2 4-4"/></svg>
+            <span>NẠP / RÚT</span>
+          </button>
         </div>
       </div>
       <div class="metric-card">
@@ -555,7 +607,7 @@ body{background:
           <div class="limit-grid">
             <div>
               <label class="field-label" for="bet">Mức cược</label>
-              <div class="amount-control"><input id="bet" type="number" value="10000" min="1000" step="1000"><span>đ</span></div>
+              <div class="amount-control"><input id="bet" type="number" value="1000" min="1000" step="1000"><span>đ</span></div>
               <span class="limit-caption">Cược gốc mỗi lệnh</span>
             </div>
             <div>
@@ -619,15 +671,14 @@ body{background:
     <section class="panel full-history">
       <div class="panel-head">
         <div>
-          <h3 class="panel-title">Biến động số dư · cược & giftcode</h3>
-          <p class="panel-subtitle">Dữ liệu trực tiếp từ lịch sử hoạt động trong game LC79</p>
+          <h3 class="panel-title">Lịch sử dòng tiền</h3>
+
         </div>
         <div class="history-tools">
           <span class="log-count" id="activityCount">0 giao dịch</span>
           <button class="outline-button" type="button" onclick="loadActivity(true)">↻ Làm mới</button>
         </div>
       </div>
-      <div class="history-subnote">Danh sách này gồm đặt cược, thắng cược, hoàn cược và nhận giftcode. Đây không phải lịch sử nạp/rút ngân hàng.</div>
       <div class="activity-filters" role="group" aria-label="Lọc lịch sử hoạt động">
         <button class="activity-filter active" data-activity-filter="all" type="button" onclick="setActivityFilter('all')">Tất cả</button>
         <button class="activity-filter" data-activity-filter="bet" type="button" onclick="setActivityFilter('bet')">Cược</button>
@@ -650,13 +701,13 @@ body{background:
 <div id="walletModal" class="modal-shell" role="dialog" aria-modal="true" aria-labelledby="walletTitle">
   <section class="wallet-dialog">
     <header class="wallet-head">
-      <div><h2 id="walletTitle">Ví tài khoản</h2><p>Nạp, rút và quản lý ngân hàng</p></div>
+      <div><h2 id="walletTitle">Ví tài khoản</h2><p>Nạp tiền · Rút tiền · Thông tin tài khoản</p></div>
       <button class="wallet-close" type="button" onclick="closeWallet()" aria-label="Đóng">×</button>
     </header>
     <nav class="wallet-tabs" aria-label="Chức năng ví">
       <button class="wallet-tab active" data-wallet-tab="deposit" type="button" onclick="walletTab('deposit')">Nạp tiền</button>
       <button class="wallet-tab" data-wallet-tab="withdraw" type="button" onclick="walletTab('withdraw')">Rút tiền</button>
-      <button class="wallet-tab" data-wallet-tab="banks" type="button" onclick="walletTab('banks')">Ngân hàng đã liên kết</button>
+      <button class="wallet-tab" data-wallet-tab="account" type="button" onclick="walletTab('account')">Tài khoản</button>
     </nav>
     <div class="wallet-body">
       <section class="wallet-pane active" id="wallet-deposit">
@@ -681,19 +732,39 @@ body{background:
       <section class="wallet-pane" id="wallet-withdraw">
         <div class="wallet-grid">
           <div class="wallet-field"><label for="withdrawAmount">SỐ TIỀN MUỐN RÚT</label><input class="wallet-input money-entry" id="withdrawAmount" type="text" inputmode="numeric" autocomplete="off" placeholder="Chọn mệnh giá hợp lệ"></div>
-          <div class="wallet-field"><label for="withdrawBank">NGÂN HÀNG NHẬN</label><select class="wallet-select" id="withdrawBank"><option value="">Đang tải ngân hàng…</option></select></div>
         </div>
         <div class="amount-presets" id="withdrawPresets"></div>
+        <div class="account-mini" id="withdrawAccountHint">Đang kiểm tra thông tin tài khoản và bảo mật…</div>
         <div class="withdraw-hint" id="withdrawHint">Đang kiểm tra bảo mật, số dư và hạn mức rút.</div>
         <button class="wallet-submit" id="withdrawSubmit" type="button" onclick="submitWithdraw()">GỬI YÊU CẦU RÚT TIỀN</button>
         <div class="wallet-status" id="withdrawStatus"></div>
-        <div class="wallet-note">Chỉ rút về ngân hàng đã liên kết trong tài khoản game. Hệ thống sẽ kiểm tra liên kết số điện thoại, số dư và mệnh giá rút trước khi gửi yêu cầu.</div>
+        <div class="wallet-note">Yêu cầu rút sử dụng tài khoản nhận đã liên kết sẵn trong LC79. Hệ thống kiểm tra bảo mật số điện thoại và hạn mức trước khi gửi.</div>
       </section>
-      <section class="wallet-pane" id="wallet-banks">
-        <div class="bank-list" id="linkedBanks"><div class="empty-activity">Đang tải danh sách ngân hàng…</div></div>
+      <section class="wallet-pane" id="wallet-account">
+        <div class="account-info-grid">
+          <div class="account-info-cell"><span>TÊN ĐĂNG NHẬP</span><strong id="accUsername">—</strong></div>
+          <div class="account-info-cell"><span>TÊN HIỂN THỊ</span><strong id="accNickname">—</strong></div>
+          <div class="account-info-cell"><span>SỐ ĐIỆN THOẠI</span><strong id="accPhone">—</strong></div>
+          <div class="account-info-cell"><span>BẢO MẬT SĐT</span><strong id="accPhoneStatus">Đang kiểm tra…</strong></div>
+          <div class="account-info-cell"><span>SỐ DƯ CHÍNH</span><strong id="accBalance">—</strong></div>
+          <div class="account-info-cell"><span>VÍ AN TOÀN</span><strong id="accSafe">—</strong></div>
+        </div>
+        <div class="wallet-note">Thông tin được lấy trực tiếp từ API hồ sơ LC79. Số điện thoại được hiển thị theo dạng ẩn nếu phía game trả về số đã che.</div>
       </section>
     </div>
   </section>
+</div>
+
+<div id="logoutMask" class="logout-mask" role="dialog" aria-modal="true" aria-labelledby="logoutTitle">
+  <div class="confirm-dialog logout-dialog">
+    <div class="logout-symbol"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4H5.5A1.5 1.5 0 004 5.5v13A1.5 1.5 0 005.5 20H10"/><path d="M14 16l4-4-4-4M18 12H9"/></svg></div>
+    <h2 id="logoutTitle">Bạn chắc chắn muốn thoát?</h2>
+    <p>Phiên đăng nhập sẽ được đăng xuất khỏi thiết bị này. Auto đã bật trên máy chủ vẫn tiếp tục chạy.</p>
+    <div class="confirm-actions">
+      <button class="outline-button" type="button" onclick="closeLogoutDialog()">Ở lại</button>
+      <button class="danger-button" type="button" onclick="confirmLogout()">Đăng xuất</button>
+    </div>
+  </div>
 </div>
 
 <div id="mask" role="dialog" aria-modal="true">
@@ -709,9 +780,11 @@ body{background:
 
 <script>
 const $=id=>document.getElementById(id);
-let token=sessionStorage.getItem("lc79_session")||"";
-let nickname=sessionStorage.getItem("lc79_nick")||"";
-let lastSnap=null, timer=null, refreshBusy=false;
+let token=localStorage.getItem("lc79_session")||sessionStorage.getItem("lc79_session")||"";
+let nickname=localStorage.getItem("lc79_nick")||sessionStorage.getItem("lc79_nick")||"";
+if(token){localStorage.setItem("lc79_session",token);sessionStorage.setItem("lc79_session",token)}
+if(nickname){localStorage.setItem("lc79_nick",nickname);sessionStorage.setItem("lc79_nick",nickname)}
+let lastSnap=null, timer=null, keepAliveTimer=null, refreshBusy=false;
 let activityCursor="", activityHasMore=false, activityLoading=false, activityItems=[], activityLastLoaded=0, activityFilter="all";
 let walletBanks=[], withdrawConfig={denominations:[],minimum:0}, walletSecurity={mobileSecure:0};
 const EYE_ON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -738,44 +811,70 @@ function bindMoney(id){
   if(el.value) formatMoneyInput(el);
 }
 function side(s){if(!s)return "—";const u=String(s).toUpperCase();return u.includes("TAI")?"TÀI":u.includes("XIU")?"XỈU":s}
-let seenEvents=new Set();
-try{const saved=JSON.parse(sessionStorage.getItem("lc79_seen_ev")||"[]");if(Array.isArray(saved))seenEvents=new Set(saved)}catch(e){sessionStorage.removeItem("lc79_seen_ev")}
-function saveSeen(){const arr=[...seenEvents].slice(-40);sessionStorage.setItem("lc79_seen_ev",JSON.stringify(arr))}
-function requestNotify(){
-  if(!("Notification" in window)) return;
-  if(Notification.permission==="default"){
-    Notification.requestPermission().then(p=>{
-      if(p==="granted") toast("Đã bật thông báo thiết bị","ok");
-      else if(p==="denied") toast("Bạn đã tắt quyền thông báo","warn");
-    });
-  }
+let eventScope=localStorage.getItem("lc79_event_scope")||"default";
+let seenEvents=new Set();let eventsPrimed=localStorage.getItem("lc79_events_primed_"+eventScope)==="1";
+function loadSeenEvents(){try{const saved=JSON.parse(localStorage.getItem("lc79_seen_ev_"+eventScope)||"[]");seenEvents=new Set(Array.isArray(saved)?saved:[])}catch(e){seenEvents=new Set()}}
+loadSeenEvents();
+function saveSeen(){const arr=[...seenEvents].slice(-100);localStorage.setItem("lc79_seen_ev_"+eventScope,JSON.stringify(arr))}
+function setEventScope(value){const next=String(value||"default").toLowerCase();if(next===eventScope)return;eventScope=next;localStorage.setItem("lc79_event_scope",eventScope);eventsPrimed=localStorage.getItem("lc79_events_primed_"+eventScope)==="1";loadSeenEvents()}
+const toastQueue=[];let toastBusy=false,toastTimer=null;
+function eventLabel(title){
+  const t=String(title||"").toUpperCase();
+  if(t.includes("MD5"))return "TXMD5";
+  if(t.includes("THƯỜNG")||t.includes("TAI XIU")||t.includes("TÀI XỈU"))return "TX";
+  return t.replace(/^CƯỢC\s+|^THẮNG\s+|^THUA\s+/g,"").trim()||"LC79";
 }
-function deviceNotify(title,body){
-  if(!("Notification" in window) || Notification.permission!=="granted") return;
-  try{
-    const n=new Notification(title,{body:body||"",icon:"/logo_lc79.jpg",badge:"/logo_lc79.jpg",tag:"lc79-"+Date.now()});
-    setTimeout(()=>n.close(),6000);
-  }catch(e){}
+function eventToast(ev){
+  const title=String(ev.title||"");const body=String(ev.body||"");
+  const label=eventLabel(title);const parts=body.split("·").map(x=>x.trim());
+  const sideText=(parts[0]||"").toUpperCase();const money=parts.slice(1).join(" · ");
+  if(ev.kind==="bet")return `${label}: ĐOÁN ${sideText||"—"} ĐÃ CƯỢC${money?" · "+money:""}`;
+  if(ev.kind==="ok")return `${label} THẮNG${body?" · "+body:""}`;
+  if(ev.kind==="warn"&&title.toUpperCase().includes("THUA"))return `${label} THUA${body?" · "+body:""}`;
+  return title+(body?" · "+body:"");
 }
 function handleEvents(list){
-  if(!list||!list.length) return;
+  if(!list||!list.length)return;
+  if(!eventsPrimed){for(const ev of list){const id=String(ev.id||ev.ts||"");if(id)seenEvents.add(id)}eventsPrimed=true;localStorage.setItem("lc79_events_primed_"+eventScope,"1");saveSeen();return}
+  const fresh=[];
   for(const ev of list){
-    const id=String(ev.id||ev.ts||"");
-    if(!id||seenEvents.has(id)) continue;
-    seenEvents.add(id);
-    const kind=ev.kind==="bet"?"bet":ev.kind==="ok"?"ok":ev.kind==="warn"?"warn":ev.kind==="error"?"err":"info";
-    toast((ev.title||"")+(ev.body?" · "+ev.body:""), kind);
-    if(ev.kind==="bet"||ev.kind==="ok"||ev.kind==="warn") deviceNotify(ev.title||"LC79 VIP", ev.body||"");
+    const id=String(ev.id||ev.ts||"");if(!id||seenEvents.has(id))continue;
+    seenEvents.add(id);fresh.push(ev);
+  }
+  if(fresh.length>2){
+    const important=fresh.filter(ev=>ev.kind==="bet"||ev.kind==="ok"||ev.kind==="warn");
+    const summaries=important.slice(-2).map(eventToast);
+    const omitted=Math.max(0,important.length-summaries.length);
+    const message=(omitted?`+${omitted} cập nhật · `:"")+summaries.join("  /  ");
+    toast(message||`${fresh.length} cập nhật mới`,"info");
+  }else{
+    for(const ev of fresh){
+      const kind=ev.kind==="bet"?"bet":ev.kind==="ok"?"ok":ev.kind==="warn"?"warn":ev.kind==="error"?"err":"info";
+      toast(eventToast(ev),kind);
+    }
   }
   saveSeen();
 }
 function toast(msg,type="info"){
+  const clean=String(msg||"").trim();if(!clean)return;
+  const last=toastQueue[toastQueue.length-1];
+  if(last&&last.msg===clean)return;
+  if(toastQueue.length>=5){
+    const skipped=toastQueue.length-4;
+    toastQueue.splice(0,skipped);
+    toastQueue.unshift({msg:`Có ${skipped} cập nhật khác · ${clean}`,type:"info"});
+  }else toastQueue.push({msg:clean,type});
+  if(!toastBusy)showNextToast();
+}
+function showNextToast(){
+  if(toastBusy||!toastQueue.length)return;
+  toastBusy=true;const item=toastQueue.shift();
   const t=document.createElement("div");
-  t.className="toast "+(type==="error"||type==="err"?"err":type==="ok"?"ok":type==="warn"?"warn":type==="bet"?"bet":"info");
-  t.innerHTML=`<div>${esc(msg)}</div><button class="x" type="button" aria-label="Đóng">×</button>`;
-  t.querySelector(".x").onclick=()=>t.remove();
+  t.className="toast "+(item.type==="error"||item.type==="err"?"err":item.type==="ok"?"ok":item.type==="warn"?"warn":item.type==="bet"?"bet":"info");
+  t.innerHTML=`<div>${esc(item.msg)}</div><button class="x" type="button" aria-label="Đóng">×</button>`;
+  t.querySelector(".x").onclick=()=>{if(toastTimer)clearTimeout(toastTimer);t.remove();toastBusy=false;setTimeout(showNextToast,800)};
   $("toasts").appendChild(t);
-  setTimeout(()=>{if(t.parentNode)t.remove()}, type==="error"?5200:3600);
+  toastTimer=setTimeout(()=>{if(t.parentNode)t.remove();toastBusy=false;toastTimer=null;setTimeout(showNextToast,850)},3000);
 }
 function syncModeHint(){
   const v=$("mode").value;
@@ -820,7 +919,8 @@ async function doLogin(){
     const r=await fetch("/api/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})});
     const j=await r.json();
     if(!r.ok||!j.ok) throw new Error(j.error||"LC79 chưa xác nhận được đăng nhập");
-    token=j.token;nickname=j.nickname||u;
+    token=j.token;nickname=j.nickname||u;setEventScope("web:"+u.trim().toLowerCase());
+    localStorage.setItem("lc79_session",token);localStorage.setItem("lc79_nick",nickname);
     sessionStorage.setItem("lc79_session",token);sessionStorage.setItem("lc79_nick",nickname);
     $("login").classList.add("leaving");
     await new Promise(resolve=>setTimeout(resolve,260));
@@ -828,7 +928,6 @@ async function doLogin(){
     $("userlabel").textContent=nickname;
     $("av").textContent=(nickname||"LC").slice(0,2).toUpperCase();
     toast("Đăng nhập thành công · Auto đang tắt, chưa nạp phiên dự đoán","ok");
-    requestNotify();
     await refresh();
     await Promise.allSettled([loadProfile(),loadActivity(true)]);
     startPoll();
@@ -842,14 +941,23 @@ async function doLogin(){
     btn.innerHTML='<span>ĐĂNG NHẬP</span><svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>';
   }
 }
-function doLogout(silent){
-  if(token) fetch("/api/dashboard/logout",{method:"POST",headers:{"X-Session-Token":token}}).catch(()=>{});
-  token="";nickname="";sessionStorage.removeItem("lc79_session");sessionStorage.removeItem("lc79_nick");
-  $("app").style.display="none";$("login").style.display="grid";$("password").value="";
-  if(timer){clearInterval(timer);timer=null}
-  if(!silent) toast("Đã thoát","info");
+function doLogout(silent=false){
+  if(silent){executeLogout(true);return}
+  $("logoutMask").classList.add("show");
 }
-function startPoll(){if(timer)clearInterval(timer);timer=setInterval(()=>{if(token)refresh().catch(()=>{})},7000)}
+function closeLogoutDialog(){$("logoutMask").classList.remove("show")}
+function confirmLogout(){closeLogoutDialog();executeLogout(false)}
+function executeLogout(silent){
+  const oldToken=token;
+  if(oldToken)fetch("/api/dashboard/logout",{method:"POST",headers:{"X-Session-Token":oldToken}}).catch(()=>{});
+  token="";nickname="";
+  localStorage.removeItem("lc79_session");localStorage.removeItem("lc79_nick");
+  sessionStorage.removeItem("lc79_session");sessionStorage.removeItem("lc79_nick");
+  $("app").style.display="none";$("login").style.display="grid";$("password").value="";
+  if(timer){clearInterval(timer);timer=null}if(keepAliveTimer){clearInterval(keepAliveTimer);keepAliveTimer=null}
+  if(!silent)toast("Đã đăng xuất khỏi thiết bị này","info");
+}
+function startPoll(){if(timer)clearInterval(timer);if(keepAliveTimer)clearInterval(keepAliveTimer);timer=setInterval(()=>{if(token)refresh().catch(()=>{})},7000);keepAliveTimer=setInterval(async()=>{if(!token)return;try{await api("/api/dashboard/keepalive")}catch(e){if(/phiên|session|jwt|401|409/i.test(e.message||""))toast("Phiên game LC79 không còn hoạt động. Hãy đăng nhập lại và tránh đăng nhập đồng thời trên thiết bị khác.","error")}},30000)}
 function askStop(){$("mask").classList.add("show")}
 function closeDlg(){$("mask").classList.remove("show")}
 function confirmStop(){closeDlg();control("stop")}
@@ -862,15 +970,13 @@ function renderDual(d){
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px"><span>W/L</span><b style="color:var(--cream)">${t.wins||0}/${t.losses||0}</b></div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px"><span>Cược HT</span><b style="color:var(--cream)">${fmt(t.current_bet||t.base_bet||0)}</b></div>
       <div style="margin-top:6px;font-size:10px;font-weight:800;color:${t.auto?"var(--green)":"var(--red2)"}">${t.auto?"● AUTO ON":"○ AUTO OFF"} · WS ${t.connected?"LIVE":"OFF"}</div>
+      <div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)">Kiểm thử lịch sử: <b style="color:var(--gold2)">${t.backtest_n||0}</b> mẫu · đúng <b style="color:var(--gold2)">${Number(t.backtest_accuracy||0).toFixed(1)}%</b></div>
     </div>`;
   }).join("");
 }
 function renderHist(list){
   $("logCount").textContent=(list?list.length:0)+" dòng";
-  if(!list||!list.length){
-    $("hist").innerHTML=`<div class="empty-state"><div class="empty-icon">∅</div><strong>Chưa có phiên</strong><span>Bật Auto để bắt đầu dự đoán và ghi lịch sử hai bàn.</span></div>`;
-    return;
-  }
+  if(!list||!list.length){$("hist").innerHTML=`<div class="empty-state"><div class="empty-icon">∅</div><strong>Chưa có phiên</strong><span>Bật Auto để bắt đầu dự đoán và ghi lịch sử hai bàn.</span></div>`;return}
   const rows=list.map((r,idx)=>{
     const dice=(r.dice&&r.dice.length)?r.dice.join(" · "):"—";
     const pred=r.pred?side(r.pred):(r.status==="pending"?"Đang chờ":"Bỏ qua");
@@ -879,27 +985,23 @@ function renderHist(list){
     if(r.status==="pending"||(r.pred!=null&&r.res==null&&r.pred_ok==null)){tag="wait";tt="CHỜ KẾT QUẢ"}
     else if(r.status==="betting"){tag="wait";tt="ĐÃ GỬI CƯỢC"}
     else if(r.pred!=null){if(r.pred_ok){tag="ok";tt="DỰ ĐOÁN ĐÚNG"}else if(r.pred_ok===false){tag="bad";tt="DỰ ĐOÁN SAI"}else{tag="wait";tt="CHỜ"}}
-    const reason=r.reason?`<div class="level-pill">${esc(r.reason)}</div>`:"<span style='color:var(--muted)'>Không đặt cược / chưa có lý do</span>";
+    const reason=r.reason?esc(r.reason):"Không đặt cược / chưa có lý do";
     const tb=(r.table_label||r.table||"").replace(/LC79-?/i,"");
-    const bet=Number(r.bet||0), delta=r.delta===null||r.delta===undefined?null:Number(r.delta||0);
-    const amount= r.placed||bet?fmt(bet):"—";
+    const bet=Number(r.bet||0),delta=r.delta===null||r.delta===undefined?null:Number(r.delta||0);
     const deltaText=delta===null?"Chưa đối soát":((delta>=0?"+":"")+fmt(delta));
     const deltaClass=delta===null?"":delta>=0?"money-positive":"money-negative";
-    return `<tr class="hist-row" style="animation-delay:${Math.min(idx,10)*0.025}s">
-      <td class="log-time">${esc(r.time||"—")}<div style="color:var(--gold);font-weight:800;margin-top:4px">Phiên #${esc(r.sid)}</div></td>
-      <td><b>${esc(tb)}</b></td>
-      <td><b>${esc(pred)} → ${esc(res)}</b><div style="color:var(--muted);margin-top:4px;font-size:10px">Xúc xắc: ${esc(dice)}${r.total!=null?" · Tổng "+esc(r.total):""}</div></td>
-      <td style="min-width:220px;max-width:360px;white-space:normal">${reason}</td>
-      <td class="money-balance">${esc(amount)}</td>
-      <td class="${deltaClass}">${esc(deltaText)}</td>
-      <td><span class="tag ${tag}">${tt}</span></td>
-    </tr>`;
+    return `<article class="round-card" style="animation-delay:${Math.min(idx,10)*.02}s">
+      <div class="round-card-head"><div><div class="round-card-title">${esc(tb)} · Phiên #${esc(r.sid)}</div><div class="round-card-meta">${esc(r.time||"—")} · Xúc xắc ${esc(dice)}${r.total!=null?" · Tổng "+esc(r.total):""}</div></div><span class="tag ${tag}">${tt}</span></div>
+      <div class="round-card-title">${esc(pred)} <span style="color:var(--muted)">→</span> ${esc(res)}</div>
+      <div class="round-card-reason"><b>LÝ DO:</b> ${reason}</div>
+      <div class="round-card-values"><div class="round-value"><span>TIỀN ĐÃ CƯỢC</span><strong>${bet>0?fmt(bet):"Chưa cược"}</strong></div><div class="round-value"><span>BIẾN ĐỘNG THỰC TẾ</span><strong class="${deltaClass}">${esc(deltaText)}</strong></div></div>
+    </article>`;
   }).join("");
-  $("hist").innerHTML=`<table class="log-table"><thead><tr><th>Thời gian / phiên</th><th>Bàn</th><th>Dự đoán / kết quả</th><th>Lý do hệ thống</th><th>Tiền cược</th><th>Thực tế biến động</th><th>Trạng thái</th></tr></thead><tbody>${rows}</tbody></table>`;
+  $("hist").innerHTML=`<div class="round-history-list">${rows}</div>`;
 }
 function fillShared(s){
   if(!s) return;
-  $("bet").value=(s.base_bet||10000).toLocaleString("vi-VN");$("mode").value=s.mode||"canbang";
+  $("bet").value=(s.base_bet||1000).toLocaleString("vi-VN");$("mode").value=s.mode||"canbang";
   $("sl").value=(s.stop_loss||0)?Number(s.stop_loss).toLocaleString("vi-VN"):"0";
   $("sw").value=(s.stop_win||0)?Number(s.stop_win).toLocaleString("vi-VN"):"0";
   $("limit").value=(s.daily_limit||0)?Number(s.daily_limit).toLocaleString("vi-VN"):"0";
@@ -917,6 +1019,7 @@ async function refresh(){
   refreshBusy=true;
   try{
   const d=await api("/api/dashboard/status");
+  if(d.chat_id)setEventScope(d.chat_id);
   const md5=d.tables.md5||{}, tx=d.tables.tx||{};
   const bal=md5.balance||tx.balance||0;const init=md5.initial_balance||tx.initial_balance||0;
   const profit=(md5.profit||0)+(tx.profit||0)||(init?bal-init:0);
@@ -932,12 +1035,9 @@ async function refresh(){
     $("autoPill").textContent=on?"AUTO ON":"AUTO OFF";
     $("statusBanner").className="status-banner"+(on?" running":"");
   }
-  renderDual(d);renderHist(d.history||[]);handleEvents(d.events||[]);
-  if(lastSnap&&d.history&&d.history[0]){
-    const a=lastSnap.history&&lastSnap.history[0];const b=d.history[0];
-    if(b&&(!a||String(a.sid)+a.table!==String(b.sid)+b.table))
-      toast(`${b.table_label||""} #${b.sid} · ${b.pred_ok?"ĐÚNG":"SAI"} · ${side(b.res)}`, b.pred_ok?"ok":"warn");
-  }
+  renderDual(d);renderHist(d.history||[]);
+  if(!eventsPrimed){for(const ev of (d.events||[])){const id=String(ev.id||ev.ts||"");if(id)seenEvents.add(id)}eventsPrimed=true;localStorage.setItem("lc79_events_primed_"+eventScope,"1");saveSeen()}
+  else handleEvents(d.events||[]);
   lastSnap=d;
   if(token&&Date.now()-activityLastLoaded>45000) loadActivity(true).catch(()=>{});
 
@@ -952,11 +1052,10 @@ async function control(action){
     if($("pickTx")&&$("pickTx").checked) tables.push("tx");
     if(!tables.length){toast("Chọn ít nhất một bàn","err");return}
     if(action==="start"&&runButton){runButton.disabled=true;runButton.innerHTML='<span class="spin"></span> ĐANG NẠP LỊCH SỬ…';toast("Đang tải lịch sử phiên trước khi bật Auto","info")}
-    const body={tables,action,base_bet:parseMoney($("bet").value)||10000,mode:$("mode").value||"canbang",
+    const body={tables,action,base_bet:parseMoney($("bet").value)||1000,mode:$("mode").value||"canbang",
       stop_loss:parseMoney($("sl").value)||0,stop_win:parseMoney($("sw").value)||0,daily_limit:parseMoney($("limit").value)||0,
       martingale:!!$("mg").checked,mg_mult:Number($("mgmult").value)||2};
     const r=await api("/api/dashboard/control",{method:"POST",body:JSON.stringify(body)});
-    if(action==='start') requestNotify();
     toast(r.message||"Đã cập nhật", action==="stop"?"warn":"ok");
     await refresh();
   }catch(e){toast(e.message,"error")}
@@ -973,30 +1072,17 @@ function walletTab(tab){
 }
 async function openWallet(tab="deposit"){
   $("walletModal").classList.add("show");walletTab(tab);
-  if(tab==="banks") $("linkedBanks").innerHTML='<div class="empty-activity">Đang cập nhật ngân hàng…</div>';
   await Promise.allSettled([loadWalletData(),loadProfile()]);
 }
 function closeWallet(){$("walletModal").classList.remove("show")}
 async function loadWalletData(){
   const [b,c]=await Promise.allSettled([api("/api/dashboard/banks"),api("/api/dashboard/withdraw-config")]);
-  if(b.status==="fulfilled"){
-    walletBanks=Array.isArray(b.value.banks)?b.value.banks:[];
-    renderBanks();
-  }else{
-    walletBanks=[];
-    $("linkedBanks").innerHTML=`<div class="empty-activity">${esc(b.reason?.message||"Không tải được ngân hàng")}</div>`;
-    $("withdrawBank").innerHTML='<option value="">Không tải được ngân hàng</option>';
-  }
-  if(c.status==="fulfilled") withdrawConfig={denominations:Array.isArray(c.value.denominations)?c.value.denominations:[],minimum:Number(c.value.minimum)||0};
+  if(b.status==="fulfilled")walletBanks=Array.isArray(b.value.banks)?b.value.banks:[];
+  else walletBanks=[];
+  if(walletBanks.length){const a=walletBanks[0];const tail=String(a.accountNumber||"").slice(-4);$("withdrawAccountHint").textContent="Sử dụng tài khoản nhận đã liên kết mặc định"+(tail?" · kết thúc bằng "+tail:"");}
+  if(c.status==="fulfilled")withdrawConfig={denominations:Array.isArray(c.value.denominations)?c.value.denominations:[],minimum:Number(c.value.minimum)||0};
   else $("withdrawHint").textContent=c.reason?.message||"Không tải được hạn mức rút";
   renderWithdrawOptions();
-}
-function renderBanks(){
-  const target=$("linkedBanks");
-  if(!walletBanks.length){target.innerHTML='<div class="empty-activity">Chưa có ngân hàng liên kết hoặc API chưa trả danh sách. Hãy liên kết ngân hàng trong ứng dụng LC79 trước khi rút.</div>';return}
-  target.innerHTML=walletBanks.map(b=>`<div class="bank-item"><div class="bank-item-main"><strong>${esc(b.bankName||b.bankCode||"Ngân hàng")}</strong><span>${esc(b.accountNumber||"—")} · ${esc(b.accountName||"—")}</span></div><div class="bank-mark">${esc(String(b.bankCode||"BK").slice(0,3).toUpperCase())}</div></div>`).join("");
-  const select=$("withdrawBank");
-  select.innerHTML='<option value="">Chọn tài khoản ngân hàng</option>'+walletBanks.map(b=>`<option value="${Number(b.index)}">${esc(b.bankCode||b.bankName)} · ${esc(String(b.accountNumber||"").slice(-4))} · ${esc(b.accountName||"")}</option>`).join("");
 }
 function renderWithdrawOptions(){
   const target=$("withdrawPresets");
@@ -1009,9 +1095,15 @@ async function loadProfile(){
   try{
     const d=await api("/api/dashboard/profile");
     const p=d.profile||{},sec=d.security||{};walletSecurity=sec;
-    if(p.nick_name){nickname=p.nick_name;$("userlabel").textContent=nickname;$("h-nick").textContent=nickname;$("av").textContent=nickname.slice(0,2).toUpperCase();sessionStorage.setItem("lc79_nick",nickname)}
-    if(p.balance!==undefined){$("h-balance").textContent=moneyText(p.balance)}
-    if(p.safe!==undefined){$("h-safe").textContent=moneyText(p.safe)}
+    if(p.nick_name){nickname=p.nick_name;$("userlabel").textContent=nickname;$("h-nick").textContent=nickname;$("av").textContent=nickname.slice(0,2).toUpperCase();localStorage.setItem("lc79_nick",nickname);sessionStorage.setItem("lc79_nick",nickname)}
+    if(p.balance!==undefined){$("h-balance").textContent=moneyText(p.balance);$("accBalance").textContent=moneyText(p.balance)}
+    if(p.safe!==undefined){$("h-safe").textContent="Ví an toàn: "+moneyText(p.safe);$("accSafe").textContent=moneyText(p.safe)}
+    $("accUsername").textContent=p.user_name||"—";$("accNickname").textContent=p.nick_name||nickname||"—";
+    $("accPhone").textContent=sec.mobilePhone||p.mobilePhone||p.mobile||"Chưa cung cấp";
+    $("accPhoneStatus").textContent=sec.mobileSecure===1?"Đã liên kết":"Chưa liên kết";
+    $("accPhoneStatus").className=sec.mobileSecure===1?"security-good":"security-bad";
+    const linkedTail=walletBanks.length?String(walletBanks[0].accountNumber||"").slice(-4):"";
+    $("withdrawAccountHint").textContent=(sec.mobileSecure===1?"SĐT "+(sec.mobilePhone||"đã liên kết")+" · đủ điều kiện kiểm tra rút tiền":"Chưa liên kết SĐT · cần liên kết trong LC79 trước khi rút")+(linkedTail?" · tài khoản nhận mặc định ****"+linkedTail:"");
     if($("withdrawHint")){
       const phone=sec.mobileSecure===1?"Số điện thoại đã liên kết":"Chưa liên kết số điện thoại";
       $("withdrawHint").textContent=phone+(withdrawConfig.minimum?" · Tối thiểu "+moneyText(withdrawConfig.minimum):"");
@@ -1039,20 +1131,18 @@ async function createDeposit(){
 }
 function copyText(text){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast("Đã sao chép nội dung chuyển khoản","ok")).catch(()=>toast("Không sao chép được","warn"))}else{toast("Thiết bị không hỗ trợ sao chép nhanh","warn")}}
 async function submitWithdraw(){
-  const amount=parseMoney($("withdrawAmount").value),bankIndex=Number($("withdrawBank").value);
+  const amount=parseMoney($("withdrawAmount").value),bank=walletBanks[0],bankIndex=Number(bank?.index);
   if(!Number.isSafeInteger(amount)||amount<=0){showWalletStatus("withdrawStatus","Nhập số tiền rút hợp lệ");return}
-  if(!$("withdrawBank").value){showWalletStatus("withdrawStatus","Chọn ngân hàng đã liên kết");return}
+  if(!bank||!Number.isFinite(bankIndex)){showWalletStatus("withdrawStatus","Chưa có tài khoản nhận đã liên kết trong LC79. Hãy liên kết tài khoản nhận trong ứng dụng game trước.");return}
   if(walletSecurity.mobileSecure!==1){showWalletStatus("withdrawStatus","Bạn chưa liên kết số điện thoại. Hãy liên kết trong tài khoản LC79 trước khi rút.");return}
   if(!withdrawConfig.denominations.length){showWalletStatus("withdrawStatus","Chưa tải được danh sách mệnh giá rút từ LC79. Hãy đóng và mở lại mục Rút tiền để tải cấu hình; chưa gửi lệnh.");return}
   if(!withdrawConfig.denominations.includes(amount)){showWalletStatus("withdrawStatus","Số tiền không thuộc mệnh giá rút hợp lệ");return}
   if(withdrawConfig.minimum&&amount<withdrawConfig.minimum){showWalletStatus("withdrawStatus","Số tiền rút tối thiểu là "+moneyText(withdrawConfig.minimum));return}
-  const bank=walletBanks.find(b=>Number(b.index)===bankIndex);
-  if(!bank){showWalletStatus("withdrawStatus","Không tìm thấy ngân hàng đã liên kết");return}
-  if(!confirm(`Xác nhận gửi yêu cầu rút ${moneyText(amount)} về ${bank.bankCode||bank.bankName} ••••${String(bank.accountNumber||"").slice(-4)}?`))return;
+  if(!confirm(`Xác nhận gửi yêu cầu rút ${moneyText(amount)} về tài khoản nhận mặc định đã liên kết trong LC79?`))return;
   const btn=$("withdrawSubmit"),old=btn.textContent;btn.disabled=true;btn.textContent="ĐANG GỬI YÊU CẦU…";
   try{
     const d=await api("/api/dashboard/withdraw",{method:"POST",body:JSON.stringify({amount,bank_index:bankIndex})});
-    showWalletStatus("withdrawStatus",`${d.message||"Đã gửi yêu cầu"} · ${moneyText(d.amount)} · ${d.bank} ••••${String(d.account||"").slice(-4)}`,"ok");
+    showWalletStatus("withdrawStatus",`${d.message||"Đã gửi yêu cầu"} · ${moneyText(d.amount)} · tài khoản nhận đã liên kết`,"ok");
     toast("Đã gửi yêu cầu rút tiền","ok");await loadProfile();await refresh();
   }catch(e){showWalletStatus("withdrawStatus",e.message)}
   finally{btn.disabled=false;btn.textContent=old}
@@ -1091,11 +1181,16 @@ function renderActivity(){
   $("activityMore").style.display=activityHasMore?"inline-flex":"none";
   if(!rows.length){$("activityHist").innerHTML='<div class="empty-activity">Chưa có biến động số dư được trả về từ API.</div>';return}
   if(!visible.length){$("activityHist").innerHTML='<div class="empty-activity">Không có giao dịch thuộc bộ lọc này trong số dữ liệu đã tải.</div>';return}
-  $("activityHist").innerHTML=`<table class="activity-table"><thead><tr><th>Thời gian</th><th>Loại hoạt động</th><th>Mô tả</th><th>Tiền biến động</th><th>Số dư sau giao dịch</th></tr></thead><tbody>${visible.map((r,i)=>{
+  $("activityHist").innerHTML=`<div class="activity-cards">${visible.map((r,i)=>{
     const [icon,label]=activityKind(r),delta=Number(r.money_exchange)||0;
-    const deltaText=(delta>0?"+":"")+moneyText(delta);
-    return `<tr class="hist-row" style="animation-delay:${Math.min(i,12)*.018}s"><td class="activity-time">${esc(fmtActivityTime(r.trans_time))}</td><td><span class="activity-kind">${icon} ${esc(label)}</span></td><td style="min-width:220px;max-width:420px;white-space:normal"><b>${esc(r.service_name||r.description||"Hoạt động")}</b><div style="color:var(--muted);font-size:10px;margin-top:4px">${esc(r.description||"")} ${r._id?"· #"+esc(String(r._id).slice(-8)):""}</div></td><td class="${delta>=0?"money-positive":"money-negative"}">${esc(deltaText)}</td><td class="money-balance">${esc(moneyText(r.current_money))}</td></tr>`;
-  }).join("")}</tbody></table>`;
+    const deltaText=(delta>0?"+":delta<0?"−":"")+moneyText(Math.abs(delta));
+    return `<article class="activity-card" style="animation-delay:${Math.min(i,12)*.018}s">
+      <div class="activity-card-top"><span class="activity-kind">${icon} ${esc(label)}</span><span class="activity-time">${esc(fmtActivityTime(r.trans_time))}</span></div>
+      <strong class="activity-service">${esc(r.service_name||r.description||"Hoạt động")}</strong>
+      <div class="activity-description">${esc(r.description||"")}</div>
+      <div class="activity-card-bottom"><strong class="${delta>=0?"money-positive":"money-negative"}">${esc(deltaText)}</strong><span>Số dư sau giao dịch <b>${esc(moneyText(r.current_money))}</b></span></div>
+    </article>`;
+  }).join("")}</div>`;
 }
 async function loadActivity(reset=true){
   if(activityLoading)return;activityLoading=true;
@@ -1109,6 +1204,7 @@ async function loadActivity(reset=true){
     const query=new URLSearchParams({limit:"20"});if(!reset&&activityCursor)query.set("beforeId",activityCursor);
     const d=await api("/api/dashboard/activity?"+query.toString());
     const incoming=Array.isArray(d.items)?d.items:[];
+    if(reset&&incoming[0]&&incoming[0].current_money!==undefined){$("h-balance").textContent=moneyText(incoming[0].current_money);$("accBalance").textContent=moneyText(incoming[0].current_money)}
     if(reset){
       if(keepOlder){
         const freshIds=new Set(incoming.map(x=>x&&x._id).filter(Boolean));
@@ -1137,12 +1233,13 @@ $("password").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
 $("username").addEventListener("keydown",e=>{if(e.key==="Enter")$("password").focus()});
 $("mask").addEventListener("click",e=>{if(e.target===$("mask"))closeDlg()});
 $("walletModal").addEventListener("click",e=>{if(e.target===$("walletModal"))closeWallet()});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeDlg();closeWallet()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeDlg();closeWallet();closeLogoutDialog()}});
+$("logoutMask").addEventListener("click",e=>{if(e.target===$("logoutMask"))closeLogoutDialog()});
 if(token){
   $("login").style.display="none";$("app").style.display="block";
   $("userlabel").textContent=nickname||"VIP";
   $("av").textContent=(nickname||"LC").slice(0,2).toUpperCase();
-  refresh().then(()=>Promise.allSettled([loadProfile(),loadActivity(true)])).then(startPoll).catch(e=>{toast(e?.message||"Không tải được dữ liệu dashboard","warn")});
+  refresh().then(()=>Promise.allSettled([loadProfile(),loadActivity(true)])).catch(e=>{toast(e?.message||"Không tải được dữ liệu dashboard","warn")}).finally(()=>{if(token)startPoll()});
 }
 </script>
 </body>
