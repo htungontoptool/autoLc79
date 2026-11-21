@@ -5,6 +5,7 @@ import json
 import base64
 import hashlib
 import logging
+import random
 import threading
 import sqlite3
 import time
@@ -667,10 +668,16 @@ def _unwrap_dict(data):
 
 
 def _unwrap_list(data):
-    """Nhận mảng ngân hàng dù API bọc trong data/list/result/bankList nhiều lớp."""
+    """Nhận mảng dù API bọc trong data/list/result/bankList nhiều lớp."""
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
+        # Object đơn lẻ đã là 1 ngân hàng
+        keys = {str(k).replace("_", "").lower() for k in data.keys()}
+        if {"bankcode", "accountnumber", "accountname"} & keys or (
+            {"type", "number", "name"} <= keys
+        ):
+            return [data]
         aliases = {"data", "list", "items", "records", "banks", "banklist", "bank_list",
                    "listbank", "rows", "accounts", "bankaccounts", "paymentinfo", "result"}
         for key, value in data.items():
@@ -681,8 +688,9 @@ def _unwrap_list(data):
                     found = _unwrap_list(value)
                     if found:
                         return found
-        # Một số API trả trực tiếp object có mảng nằm trong các object con.
         for value in data.values():
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                return value
             if isinstance(value, dict):
                 found = _unwrap_list(value)
                 if found:
@@ -702,23 +710,38 @@ def _bank_value(bank, names):
 
 
 def _normalize_linked_banks(raw):
-    """Chuẩn hóa đúng các trường bankCode/type, accountNumber/number/receiver, accountName/name."""
+    """Chuẩn hóa danh sách NH liên kết từ nhiều kiểu JSON LC79 (data/list/result)."""
     result = []
-    for raw_index, item in enumerate(_unwrap_list(raw)):
+    bank_list = _unwrap_list(raw)
+    for raw_index, item in enumerate(bank_list):
         if not isinstance(item, dict):
             continue
         nested = item.get("bank") or item.get("bankInfo") or item.get("bank_info")
-        bank = dict(item)
         if isinstance(nested, dict):
-            bank.update(nested)
-        code = _bank_value(bank, ("bankCode", "type", "bankName", "bankShortName", "bank_code"))
-        number = _bank_value(bank, ("accountNumber", "number", "receiver", "accountNo", "account_no", "cardNumber"))
-        owner = _bank_value(bank, ("accountName", "name", "ownerName", "holderName", "fullName"))
-        title = _bank_value(bank, ("bankName", "bankFullName", "bank_name", "type", "bankCode")) or code or "Ngân hàng"
-        if not code or not number or not owner:
-            continue
-        result.append({"index": raw_index, "bankCode": code, "accountNumber": number,
-                       "accountName": owner, "bankName": title})
+            merged = dict(item)
+            merged.update(nested)
+            item = merged
+        code = (
+            item.get("bankCode") or item.get("type") or item.get("bankName")
+            or item.get("code") or item.get("bank_code") or item.get("bankShortName")
+        )
+        number = (
+            item.get("accountNumber") or item.get("number") or item.get("receiver")
+            or item.get("accountNo") or item.get("account_no") or item.get("cardNumber")
+        )
+        owner = (
+            item.get("accountName") or item.get("name") or item.get("ownerName")
+            or item.get("holderName") or item.get("fullName")
+        )
+        title = item.get("bankName") or item.get("short") or item.get("bankFullName") or code
+        if code and number and owner:
+            result.append({
+                "index": raw_index,
+                "bankCode": str(code).strip(),
+                "accountNumber": str(number).strip(),
+                "accountName": str(owner).strip(),
+                "bankName": str(title or code).strip(),
+            })
     return result
 
 
@@ -854,9 +877,12 @@ def dashboard_banks():
         raw = _lc79_request(
             "GET", LC79_WLB + "/v1/lobby/payment-info/list-bank/cashout", jwt
         )
+        # Chỉ từ chối khi API báo thất bại rõ ràng; code=200 / thiếu code vẫn parse được.
         if isinstance(raw, dict):
             code = raw.get("code")
-            if raw.get("success") is False or (code not in (None, 0, "0")):
+            explicit_fail = raw.get("success") is False
+            bad_code = str(code).upper() in {"401", "419", "UNAUTHORIZED", "ERROR", "FAIL", "FAILED"}
+            if explicit_fail or bad_code:
                 raise RuntimeError(str(raw.get("message") or "Không tải được ngân hàng đã liên kết")[:180])
         safe_banks = _normalize_linked_banks(raw)
         return jsonify({"ok": True, "banks": safe_banks})
@@ -932,15 +958,23 @@ def dashboard_withdraw():
     try:
         cid, st, jwt, _access = _lc79_credentials()
         profile, security = _get_profile_and_security(jwt)
-        if _parse_int_money(security.get("mobileSecure"), 0) != 1:
+        mobile_ok = str(security.get("mobileSecure") or "").strip().lower() in {"1", "true", "yes"}
+        if not mobile_ok and _parse_int_money(security.get("mobileSecure"), 0) != 1:
             return jsonify({"error": "Vui lòng liên kết số điện thoại trong game trước khi rút tiền"}), 409
         banks_raw = _lc79_request(
             "GET", LC79_WLB + "/v1/lobby/payment-info/list-bank/cashout", jwt
         )
         banks = _normalize_linked_banks(banks_raw)
+        if not banks:
+            return jsonify({"error": "Chưa có tài khoản nhận đã liên kết trong LC79. Hãy liên kết ngân hàng trong app game rồi thử lại."}), 409
         bank = next((b for b in banks if int(b.get("index", -1)) == bank_index), None)
+        # Frontend dùng tài khoản mặc định (index 0); fallback nếu index gửi lên lệch.
+        if bank is None and len(banks) == 1:
+            bank = banks[0]
+        if bank is None and 0 <= bank_index < len(banks):
+            bank = banks[bank_index]
         if bank is None:
-            return jsonify({"error": "Vui lòng chọn ngân hàng đã liên kết hợp lệ"}), 400
+            bank = banks[0]
         bank_code = bank["bankCode"]
         account_number = bank["accountNumber"]
         account_name = bank["accountName"]
@@ -1042,14 +1076,14 @@ BREAK_EVEN = LOSE_LOSS / (LOSE_LOSS + WIN_PROFIT)
 TAI, XIU = "TAI", "XIU"
 
 MODES = {
-    "canbang": {"label": "Cân bằng · ≥51%", "post": 0.51, "min_sessions": 12, "p_side_min": 0.51},
-    "antoan": {"label": "An toàn · ≥58%", "post": 0.58, "min_sessions": 18, "p_side_min": 0.58},
-    "maohiem": {"label": "Mạo hiểm · mọi phiên", "post": 0.50, "min_sessions": 6, "p_side_min": 0.50, "aggressive": True},
+    "canbang": {"label": "Cân bằng", "post": 0.51, "min_sessions": 8, "p_side_min": 0.51},
+    "antoan": {"label": "An toàn", "post": 0.54, "min_sessions": 12, "p_side_min": 0.54},
+    "maohiem": {"label": "Mạo hiểm", "post": 0.50, "min_sessions": 4, "p_side_min": 0.50, "aggressive": True},
 }
 DEFAULT_MODE = "canbang"
-MAX_SKIPS_PER_100 = 8  # ít bỏ qua hơn
-LOSS_STREAK_PAUSE = 3  # thua ≥3 tay → chỉ đánh khi đủ chắc
-LOSS_RECOVERY_P = 0.58  # ngưỡng chắc khi đang phục hồi sau chuỗi thua
+MAX_SKIPS_PER_100 = 12
+LOSS_STREAK_PAUSE = 4
+LOSS_RECOVERY_P = 0.54
 
 state_lock = threading.RLock()
 active_sockets = {}  # khóa (chat_id, table_key)
@@ -1154,301 +1188,30 @@ def side_label(side):
 
 
 # ============================================================
-# TOÁN
+# ENGINE NHẸ: RANDOM + BẮT CẦU / BẺ CẦU / ANTI
 # ============================================================
-ORDER_NAMES = {0: "Tần suất", 1: "Markov 1", 2: "Markov 2", 3: "Markov 3"}
-
-
-def expert_name(key):
-    order, hl = key
-    return f"{ORDER_NAMES[order]} {'nhanh' if hl < 100 else 'chậm'}"
-
-
-def beta_prob_above(a, b, x0=0.5, steps=400):
-    """P(X > x0) với X ~ Beta(a, b), tích phân Simpson. Yêu cầu a, b >= 1."""
-    if a <= 0 or b <= 0:
-        return 0.5
-    lnB = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-
-    def f(x):
-        if x <= 0.0 or x >= 1.0:
-            return 0.0
-        return math.exp((a - 1) * math.log(x) + (b - 1) * math.log(1 - x) - lnB)
-
-    h = (1.0 - x0) / steps
-    total = f(x0) + f(1.0)
-    for i in range(1, steps):
-        total += (4 if i % 2 else 2) * f(x0 + i * h)
-    return min(1.0, max(0.0, total * h / 3))
-
-
-def gammaincc(a, x):
-    """Q(a, x) = phần đuôi của hàm gamma không hoàn chỉnh chuẩn hóa."""
-    if x <= 0:
-        return 1.0
-    log_pref = -x + a * math.log(x) - math.lgamma(a)
-    if x < a + 1:
-        term = 1.0 / a
-        total = term
-        ap = a
-        for _ in range(500):
-            ap += 1
-            term *= x / ap
-            total += term
-            if abs(term) < abs(total) * 1e-12:
-                break
-        return max(0.0, 1.0 - total * math.exp(log_pref))
-    b = x + 1 - a
-    c = 1e300
-    d = 1.0 / b
-    h = d
-    for i in range(1, 500):
-        an = -i * (i - a)
-        b += 2
-        d = an * d + b
-        d = 1.0 / d if abs(d) > 1e-300 else 1e300
-        c = b + an / c
-        delta = c * d
-        h *= delta
-        if abs(delta - 1) < 1e-12:
-            break
-    return min(1.0, math.exp(log_pref) * h)
-
-
-def chi2_sf(x, df):
-    """P(chi-bình phương > x) với df bậc tự do: giá trị p của kiểm định lệch."""
-    return gammaincc(df / 2.0, x / 2.0)
-
-
-def binom_p_le(k, n):
-    """P(X <= k) với X ~ Binomial(n, 1/2): xác suất đoán đúng ít nhất như vậy nếu chỉ là may rủi."""
-    if n <= 0:
-        return 1.0
-    return sum(math.comb(n, i) for i in range(0, k + 1)) / (2 ** n)
-
-
-def danh_gia(k, n):
-    """Kết luận về độ đúng của dự đoán so với tung đồng xu."""
-    if n < 30:
-        return f"chưa đủ dữ liệu ({n} phiên)"
-    p_lo = binom_p_le(k, n)
-    if p_lo < 0.05:
-        return f"kém ngẫu nhiên (p={p_lo:.3f})"
-    p_hi = 1 - binom_p_le(k - 1, n)
-    if p_hi < 0.05:
-        return f"tốt hơn ngẫu nhiên (p={p_hi:.3f})"
-    return "chưa khác ngẫu nhiên"
-
-
-def describe_p(p):
-    if p is None:
-        return "chưa đủ dữ liệu"
-    if p < 0.05:
-        return f"có dấu hiệu (p={p:.3f})"
-    return f"chưa thấy lệch (p={p:.2f})"
-
-
-# ---- Bảng công thức xúc xắc (theo file người dùng cung cấp) ----
-# Khóa: bộ 3 xúc xắc của ván VỪA KẾT THÚC, theo đúng thứ tự tung (ví dụ (1, 2, 4)).
-# Giá trị: phía của ván KẾ TIẾP. Bộ nào không có trong bảng -> không áp dụng công thức (bỏ qua).
-_T, _X = "TAI", "XIU"
-DICE_RULES = {}
-def _add(side, combos):
-    for c in combos:
-        DICE_RULES[tuple(int(ch) for ch in c)] = side
-
-_add(_X, ["111", "112", "121", "211", "113", "131", "311", "122", "212", "221"])  # tổng 3,4,5 mặc định Xỉu ở xử lý dưới
-_add(_T, ["123", "114", "132", "213"])
-_add(_X, ["222", "411"])
-_add(_T, ["124", "133", "331"])
-_add(_X, ["223", "232", "115", "151", "511", "241"])
-_add(_T, ["134", "224", "323"])
-_add(_X, ["116", "125", "233", "143", "251", "512", "611", "431"])
-_add(_T, ["126", "135", "144", "333"])
-_add(_X, ["225", "234", "261", "252", "315", "153"])
-_add(_T, ["136", "145", "244", "343"])
-_add(_X, ["226", "235", "334", "163", "316", "424", "613", "451"])
-_add(_T, ["236", "344", "434"])
-_add(_X, ["632", "263", "326", "155", "461", "146", "614", "452", "254", "353", "533"])
-_add(_T, ["156", "255", "336", "345", "651", "561", "165", "516", "615", "552", "354", "543", "633", "363", "426", "624"])
-_add(_X, ["246", "444"])
-_add(_T, ["346", "355", "445"])
-_add(_X, ["166", "256"])
-_add(_T, ["356", "455"])
-_add(_X, ["266", "446", "554"])
-_add(_T, ["456", "555"])
-_add(_X, ["366", "465"])
-_add(_X, ["556", "466"])
-_add(_T, ["664", "646"])
-_add(_T, ["566"])
-# Tổng 3, 4, 5 (Xỉu) mặc định: mọi bộ có tổng đó đều cho Xỉu
-for _a in range(1, 7):
-    for _b in range(1, 7):
-        for _c in range(1, 7):
-            t = _a + _b + _c
-            if t in (3, 4, 5) and (_a, _b, _c) not in DICE_RULES:
-                DICE_RULES[(_a, _b, _c)] = _X
-
-def dice_rule_pred(dice):
-    """Dự đoán ván kế tiếp theo công thức xúc xắc, hoặc None nếu bộ xúc xắc không có trong bảng."""
-    try:
-        key = tuple(int(x) for x in dice)
-    except Exception:
-        return None
-    if len(key) != 3:
-        return None
-    return DICE_RULES.get(key)
-
-def vn_hour():
-    """Giờ Việt Nam (UTC+7), không phụ thuộc múi giờ máy chủ."""
-    return int(((time.time() + 7 * 3600) % 86400) // 3600)
-
-def in_blackout():
-    """Khung 0h-5h sáng không áp dụng công thức."""
-    return 0 <= vn_hour() < 5
-
-# ---- Mẫu cầu từ các file thuật toán người dùng cung cấp ----
-# Mẫu 1: pattern database trong thuattoan123.js. Mẫu khớp (trừ phần tử cuối) -> dự đoán phần tử cuối.
-PATTERN_DB = {
-    "1-1": (["T", "X", "T", "X"], 0.70), "1-2-1": (["T", "X", "X", "T"], 0.65),
-    "2-1-2": (["T", "T", "X", "T", "T"], 0.68), "3-1": (["T", "T", "T", "X"], 0.72),
-    "1-3": (["T", "X", "X", "X"], 0.72), "2-2": (["T", "T", "X", "X"], 0.66),
-    "2-3": (["T", "T", "X", "X", "X"], 0.71), "3-2": (["T", "T", "T", "X", "X"], 0.73),
-    "4-1": (["T", "T", "T", "T", "X"], 0.76), "1-4": (["T", "X", "X", "X", "X"], 0.76),
-}
-
-
-def db_pattern_pred(results):
-    """Mẫu khớp dài nhất trong PATTERN_DB; nếu không có thì thử hai luật động trong thuattoan123.js."""
-    results = ["T" if x == TAI else "X" for x in results]
-    best = None
-    for pat, prob in PATTERN_DB.values():
-        L = len(pat) - 1
-        if len(results) >= L and results[len(results) - L:] == pat[:-1]:
-            cand = (L, prob, pat[-1])
-            if best is None or cand[:2] > best[:2]:
-                best = cand
-    if best is not None:
-        return TAI if best[2] == "T" else XIU
-    l6 = results[-6:]
-    if len(results) >= 6 and l6.count("T") == 4 and l6[-1] == "T":
-        return XIU
-    l8 = results[-8:]
-    if len(results) >= 8 and l8.count("T") >= 6 and l8[-1] == "T":
-        return XIU
-    return None
-
-
-# Mẫu 2: bảng 8 ván — đếm walk-forward từ lịch sử đã nạp (tránh nhìn tương lai).
-def bang8_counts_from(seq):
-    counts = {}
-    for i in range(len(seq) - 8):
-        key = "".join("T" if x == TAI else "X" for x in seq[i:i + 8])
-        c = counts.setdefault(key, [0, 0])
-        c[0 if seq[i + 8] == TAI else 1] += 1
-    return counts
-
-
-def bang8_pred(results, counts):
-    """Ván kế tiếp theo bảng 8 ván; chỉ dùng khi đủ mẫu và không hòa."""
-    if len(results) < 8:
-        return None
-    key = "".join("T" if x == TAI else "X" for x in results[-8:])
-    c = counts.get(key)
-    if not c or c[0] + c[1] < 5 or c[0] == c[1]:
-        return None
-    return TAI if c[0] > c[1] else XIU
-
-
-def streak_break_rate(seq, L):
-    """Sau một bệt đã dài ≥ L, bao nhiêu lần kết quả tiếp tục bệt và bao nhiêu lần bị bẻ."""
-    cont = brk = 0
-    # run_len[i] = độ dài bệt kết thúc tại i
-    run_len = [0] * len(seq)
-    for i in range(len(seq)):
-        run_len[i] = run_len[i - 1] + 1 if i > 0 and seq[i] == seq[i - 1] else 1
-    for i in range(1, len(seq)):
-        if run_len[i - 1] >= L:
-            if seq[i] == seq[i - 1]:
-                cont += 1
-            else:
-                brk += 1
-    return cont, brk
-
-
-def bet_dai_pred(seq, min_run=3, min_samples=20, edge=0.55):
-    """Bẻ hay theo bệt dài: dựa trên tần suất bệt tiếp/bị bẻ đã quan sát với độ dài bệt hiện tại."""
-    if len(seq) < 10:
-        return None
-    L = 1
-    for i in range(len(seq) - 1, 0, -1):
-        if seq[i] == seq[i - 1]:
-            L += 1
-        else:
-            break
-    if L < min_run:
-        return None
-    cont, brk = streak_break_rate(seq, L)
-    n = cont + brk
-    if n < min_samples:
-        return None
-    last = seq[-1]
-    opposite = XIU if last == TAI else TAI
-    if brk / n >= edge:
-        return opposite
-    if cont / n >= edge:
-        return last
-    return None
-
-
-def runs_test(seq):
-    """Kiểm định chạy (Wald-Wolfowitz): chuỗi có ngẫu nhiên không. Trả về (p, số chạy, kỳ vọng)."""
-    n1 = sum(1 for x in seq if x == TAI)
-    n2 = len(seq) - n1
-    n = n1 + n2
-    if n1 == 0 or n2 == 0 or n < 20:
-        return None
-    R = 1 + sum(1 for i in range(1, n) if seq[i] != seq[i - 1])
-    mu = 2 * n1 * n2 / n + 1
-    var = 2 * n1 * n2 * (2 * n1 * n2 - n) / (n * n * (n - 1))
-    if var <= 0:
-        return None
-    z = (R - mu) / math.sqrt(var)
-    p = math.erfc(abs(z) / math.sqrt(2))
-    return p, R, mu
-
-
 class CauEngine:
-    """8 mô hình (tần suất, Markov bậc 1-3, mỗi loại nhanh và chậm), trọng số học theo lỗ."""
-
-    ORDERS = (0, 1, 2, 3)
-    HALF_LIVES = (40.0, 200.0)
-    BETA = 4.0
-    ETA = 6.0
-    GAMMA = 0.98
-    EPS = 1e-4
+    """Engine gọn: chủ yếu random, thêm chút bắt cầu / bẻ cầu / anti."""
 
     def __init__(self):
         self.recs = {}
-        self.perf = deque(maxlen=120)
-        self.calib = deque(maxlen=300)
+        self.perf = deque(maxlen=80)
         self.skips = 0
-        self.extra_post = 0.0
-        self.loss = {}
-        self.skip_streak = 0
-        self.pause_remaining = 0
-        self.pause_total = 0
-        self.active_after_pause = 0
         self.pause_events = 0
-        self.shadow = {}
-        self.bang8_counts = {}
-        self.validation_ready = False
+        self.validation_ready = True
         self.backtest_n = 0
         self.backtest_hits = 0
+        self.last_info = {}
+
+    def results(self):
+        return [v[0] for v in self.recs.values()]
+
+    def dices(self):
+        return [v[2] if len(v) > 2 else [] for v in self.recs.values()]
 
     def ingest(self, records):
         added = 0
-        for rec in records:
+        for rec in records or []:
             sid, res = rec.get("session"), rec.get("result")
             if sid is None or res not in (TAI, XIU) or sid in self.recs:
                 continue
@@ -1457,385 +1220,126 @@ class CauEngine:
         if added:
             ordered = sorted(self.recs.items(), key=lambda kv_: sid_sort_key(kv_[0]))[-MAX_HISTORY:]
             self.recs = dict(ordered)
-            self.bang8_counts = bang8_counts_from(self.results())
-            # Historical walk-forward test: each row is predicted only from earlier rows.
-            # It runs once when the initial game history is loaded, then online feedback
-            # continues through learn()/record()/record_shadow() after every settled round.
-            if not self.validation_ready and len(ordered) >= 30:
-                self.bootstrap_validation(ordered)
+            if self.backtest_n == 0 and len(ordered) >= 20:
+                self._quick_backtest(ordered)
         return added
 
-    def bootstrap_validation(self, ordered_records, max_samples=650):
-        rows = list(ordered_records)[-max_samples:]
-        if len(rows) < 30:
-            return
-        self.loss = {}
-        self.calib.clear()
-        self.perf.clear()
-        self.shadow = {}
-        self.extra_post = 0.0
-        sequence = []
-        dice_sequence = []
-        correct = 0
-        tested = 0
-        warmup = min(15, max(8, len(rows)//10))
-        for row in rows:
-            actual = row[1][0]
-            if len(sequence) >= warmup:
-                self.bang8_counts = bang8_counts_from(sequence)
-                experts = self.experts(sequence)
-                keys = list(experts)
-                weights = self.weights(keys)
-                raw_p = sum(weights[k] * experts[k][0] for k in keys)
-                calibrated = self.calibrate_probability(raw_p)
-                prediction = TAI if calibrated >= 0.5 else XIU
-                p_side = max(calibrated, 1.0-calibrated)
-                strat = self.strategy_preds(sequence, raw_p, dice_sequence)
-                expert_probs = {k: experts[k][0] for k in keys}
-                self.learn(expert_probs, raw_p, actual)
-                self.record(prediction, p_side, actual)
-                self.record_shadow(strat, actual)
+    def _quick_backtest(self, ordered, max_samples=120):
+        rows = list(ordered)[-max_samples:]
+        seq = []
+        hits = tested = 0
+        for sid, (res, _total, _dice) in rows:
+            if len(seq) >= 8:
+                pred = self._signal(seq)[0]
                 tested += 1
-                if prediction == actual:
-                    correct += 1
-            sequence.append(actual)
-            dice_sequence.append(row[1][2] if len(row[1]) > 2 else [])
-        self.bang8_counts = bang8_counts_from(self.results())
-        self.validation_ready = True
+                if pred == res:
+                    hits += 1
+            seq.append(res)
         self.backtest_n = tested
-        self.backtest_hits = correct
-        log.info("Walk-forward backtest: %s/%s đúng (%.1f%%) trên %s mẫu lịch sử",
-                 correct, tested, (correct/tested*100 if tested else 0), len(rows))
-
-    def dices(self):
-        return [v[2] if len(v) > 2 else [] for v in self.recs.values()]
-
-    def results(self):
-        return [v[0] for v in self.recs.values()]
+        self.backtest_hits = hits
+        self.validation_ready = True
 
     @staticmethod
-    def _counts(seq, order, hl):
-        n = len(seq)
-        w = {TAI: 0.0, XIU: 0.0}
-        if order == 0:
-            for i in range(n):
-                w[seq[i]] += 0.5 ** ((n - 1 - i) / hl)
-            return w
-        ctx = seq[-order:]
-        for i in range(order, n):
-            if seq[i - order:i] == ctx:
-                w[seq[i]] += 0.5 ** ((n - 1 - i) / hl)
-        return w
-
-    def _estimate(self, seq, hl, max_order):
-        base = self._counts(seq, 0, hl)
-        p = (base[TAI] + 1) / (base[TAI] + base[XIU] + 2)
-        n_last = base[TAI] + base[XIU]
-        for k in range(1, max_order + 1):
-            if len(seq) <= k:
-                break
-            w = self._counts(seq, k, hl)
-            n_k = w[TAI] + w[XIU]
-            p = (w[TAI] + self.BETA * p) / (n_k + self.BETA)
-            n_last = n_k
-        return p, n_last
-
-    def experts(self, seq):
-        out = {}
-        for hl in self.HALF_LIVES:
-            for k in self.ORDERS:
-                out[(k, hl)] = self._estimate(seq, hl, k)
-        return out
-
-    def calibrate_probability(self, p_tai):
-        """Hiệu chỉnh xác suất bằng dự báo walk-forward đã được chốt kết quả.
-        Chỉ bật khi có đủ mẫu; shrink về xác suất gốc để tránh overfit."""
-        samples = list(self.calib)[-300:]
-        if len(samples) < 30:
-            return min(0.999, max(0.001, p_tai))
-        lo = max(0.0, min(0.9, math.floor(p_tai * 10) / 10))
-        bucket = [(p, y) for p, y in samples if lo <= p < lo + 0.1]
-        if len(bucket) < 12:
-            return min(0.999, max(0.001, p_tai))
-        observed = (sum(1 for _, y in bucket if y) + 2.0) / (len(bucket) + 4.0)
-        # Trọng số tăng dần theo số mẫu, tối đa 50% để không phản ứng quá mức.
-        strength = min(0.5, len(bucket) / (len(bucket) + 30.0))
-        calibrated = p_tai * (1.0 - strength) + observed * strength
-        return min(0.999, max(0.001, calibrated))
-
-    def weights(self, keys):
-        losses = {key: self.loss.get(key, 0.0) for key in keys}
-        m = min(losses.values())
-        raw = {key: math.exp(-self.ETA * (losses[key] - m)) for key in keys}
-        z = sum(raw.values())
-        return {key: raw[key] / z for key in keys}
-
-    STRATS = ("theo_cau", "dao_cau", "runlen", "markov1", "markov2", "markov3", "tan_suat", "tong_hop",
-              "cong_thuc", "db_mau", "bang8", "bet_dai")
-    STRAT_NAMES = {"theo_cau": "Bệt", "dao_cau": "1-1", "runlen": "Nhịp theo độ dài",
-                   "markov1": "Markov 1", "markov2": "Markov 2", "markov3": "Markov 3",
-                   "tan_suat": "Tần suất", "tong_hop": "Tổng hợp", "cong_thuc": "Công thức xúc xắc",
-                   "db_mau": "Mẫu cầu", "bang8": "Bảng 8 ván", "bet_dai": "Bẻ bệt dài"}
-    SHADOW_WINDOW = 80
-    SHADOW_MIN = 30
-
-    def run_length_pred(self, seq):
-        """Cầu nhịp: học xác suất đổi cầu theo độ dài chuỗi hiện tại (bệt 1, nhịp đôi 2, nhịp ba 3...)."""
+    def _streak(seq):
+        if not seq:
+            return 0, None
         last = seq[-1]
-        n = len(seq)
-        cnt = {}
-        run = 0
-        for j in range(n - 1):
-            run = run + 1 if j > 0 and seq[j] == seq[j - 1] else 1
-            c = cnt.setdefault(run, [0, 0])
-            c[1] += 1
-            c[0] += 1 if seq[j + 1] != seq[j] else 0
-        r = 0
+        n = 0
         for x in reversed(seq):
-            if x == last:
-                r += 1
-            else:
+            if x != last:
                 break
+            n += 1
+        return n, last
+
+    def _signal(self, seq):
+        """Trả (side, p_tai, reason, style)."""
+        if not seq:
+            side = TAI if random.random() < 0.5 else XIU
+            return side, 0.5, "Ngẫu nhiên (thiếu lịch sử)", "random"
+
+        run, last = self._streak(seq)
         opposite = XIU if last == TAI else TAI
-        if r in cnt and cnt[r][1] >= 10:
-            p_switch = (cnt[r][0] + 1) / (cnt[r][1] + 2)
-            return opposite if p_switch >= 0.5 else last
-        return last
+        r = random.random()
 
-    def strategy_preds(self, seq, p_tai, dices=None):
-        """Dự đoán của từng chiến lược cho ván hiện tại (chỉ dùng dữ liệu đã có)."""
-        last = seq[-1]
-        hl = self.HALF_LIVES[1]
-        p1, _ = self._estimate(seq, hl, 1)
-        p2, _ = self._estimate(seq, hl, 2)
-        p3, _ = self._estimate(seq, hl, 3)
-        p0, _ = self._estimate(seq, hl, 0)
-        return {
-            "theo_cau": last,
-            "dao_cau": XIU if last == TAI else TAI,
-            "runlen": self.run_length_pred(seq),
-            "markov1": TAI if p1 >= 0.5 else XIU,
-            "markov2": TAI if p2 >= 0.5 else XIU,
-            "markov3": TAI if p3 >= 0.5 else XIU,
-            "tan_suat": TAI if p0 >= 0.5 else XIU,
-            "tong_hop": TAI if p_tai >= 0.5 else XIU,
-            "cong_thuc": dice_rule_pred(dices[-1]) if dices else None,
-            "db_mau": db_pattern_pred(seq),
-            "bang8": bang8_pred(seq, self.bang8_counts),
-            "bet_dai": bet_dai_pred(seq),
-        }
+        # 1) Bẻ cầu dài (≥4): nghiêng về phía ngược
+        if run >= 4 and r < 0.55:
+            p = 0.52 + min(0.08, (run - 3) * 0.02)
+            side = opposite
+            return side, (p if side == TAI else 1 - p), f"Bẻ cầu dài {run}", "be"
 
-    def pick_strategy(self):
-        """Chọn chiến lược đúng nhiều nhất gần đây, chỉ khi vượt ngẫu nhiên sau hiệu chỉnh nhiều lần thử."""
-        best = None
-        for name in self.STRATS:
-            hits = list(self.shadow.get(name, []))[-self.SHADOW_WINDOW:]
-            n = len(hits)
-            if n < self.SHADOW_MIN:
-                continue
-            k = sum(hits)
-            p_adj = min(1.0, len(self.STRATS) * (1 - binom_p_le(k - 1, n)))
-            cand = (name, k, n, p_adj)
-            if best is None or (p_adj, -k / n) < (best[3], -best[1] / best[2]):
-                best = cand
-        if best is None or best[3] >= 0.05:
-            return None
-        return best
+        # 2) Bắt cầu ngắn (2-3): nghiêng theo cầu
+        if 2 <= run <= 3 and r < 0.50:
+            p = 0.52 + (run - 1) * 0.02
+            side = last
+            return side, (p if side == TAI else 1 - p), f"Bắt cầu {run}", "bat"
+
+        # 3) Anti: nếu 6 phiên gần đoán đúng quá nhiều trong perf → lật
+        recent = list(self.perf)[-6:]
+        if len(recent) >= 6:
+            ok = sum(1 for pr, ac, _ in recent if pr == ac)
+            if ok >= 5 and r < 0.45:
+                side = opposite
+                return side, 0.52 if side == TAI else 0.48, "Anti (đảo sau chuỗi đúng)", "anti"
+
+        # 4) Mặc định: random gần 50/50, lệch nhẹ theo tần suất 12 phiên
+        window = seq[-12:]
+        tai_n = sum(1 for x in window if x == TAI)
+        bias = (tai_n / len(window) - 0.5) * 0.12  # lệch rất nhẹ
+        p_tai = max(0.42, min(0.58, 0.5 + bias + (random.random() - 0.5) * 0.08))
+        side = TAI if random.random() < p_tai else XIU
+        # ép p_side gần 0.5–0.56 để mode an toàn vẫn có thể bỏ phiên
+        p_tai = 0.5 + (0.04 if side == TAI else -0.04) * (0.5 + random.random() * 0.5)
+        return side, p_tai, "Ngẫu nhiên + lệch nhẹ", "random"
 
     def predict(self, mode=DEFAULT_MODE):
         cfg = MODES.get(mode, MODES[DEFAULT_MODE])
-        never_skip = cfg.get("never_skip", False)
         seq = self.results()
-        n = len(seq)
-        ex = self.experts(seq)
-        keys = list(ex.keys())
-        w = self.weights(keys)
-        raw_p_tai = sum(w[k] * ex[k][0] for k in keys)
-        p_tai = self.calibrate_probability(raw_p_tai)
-        top = max(keys, key=lambda k: w[k])
-
-        fast, slow = (3, self.HALF_LIVES[0]), (3, self.HALF_LIVES[1])
-        n_eff = (ex[fast][1] + ex[slow][1]) / 2
-
-        side = TAI if p_tai >= 0.5 else XIU
-        p_side = max(p_tai, 1 - p_tai)
-        # Độ kiểm chứng lấy từ dự đoán walk-forward đã có kết quả, không lấy
-        # chính xác suất Markov làm dữ liệu tự chứng minh cho nó.
-        checked = list(self.perf)[-self.PAUSE_WINDOW:]
-        checked_n = len(checked)
-        checked_hits = sum(1 for predicted, actual, _prob in checked if predicted == actual)
-        post = beta_prob_above(checked_hits + 1, checked_n - checked_hits + 1, x0=0.5)
-        ev = p_side * WIN_PROFIT - (1 - p_side) * LOSE_LOSS
-        strat = self.strategy_preds(seq, p_tai, self.dices()) if n else {}
-        pick = self.pick_strategy() if n else None
-        if pick and strat.get(pick[0]) is None:
-            pick = None  # chiến lược đang dẫn không áp dụng được cho ván này
+        side, p_tai, reason, style = self._signal(seq)
+        p_side = max(p_tai, 1.0 - p_tai)
+        p_min = float(cfg.get("p_side_min") or 0.51)
+        min_sess = int(cfg.get("min_sessions") or 8)
+        aggressive = bool(cfg.get("aggressive"))
 
         out = {
-            "side": None, "p": p_tai, "raw_p_tai": raw_p_tai,
-            "calibrated": len(self.calib) >= 30, "post": post, "n_eff": n_eff,
-            "checked_n": checked_n, "checked_hits": checked_hits, "ev": ev,
-            "reason": "", "agree": True, "p_tai": raw_p_tai, "p_calibrated": p_tai, "strat": strat,
-            "ctx": f"{expert_name(top)} {w[top]:.0%}",
-            "experts": {k: ex[k][0] for k in keys},
+            "side": side,
+            "p": p_side,
+            "p_tai": p_tai,
+            "reason": reason,
+            "ctx": style,
+            "experts": {},
+            "strat": {"random": side, "style": style},
         }
+
+        if len(seq) < min_sess and not aggressive:
+            out["side"] = None
+            out["reason"] = f"Cần thêm dữ liệu ({len(seq)}/{min_sess})"
+            self.skips += 1
+            self.last_info = out
+            return out
+
+        # Mode an toàn: bỏ qua khi tín hiệu quá yếu (gần 50/50)
+        if not aggressive and p_side < p_min and style == "random":
+            # 60% bỏ phiên, 40% vẫn đánh random
+            if random.random() < 0.60:
+                out["side"] = None
+                out["reason"] = f"Chưa đủ chắc ({p_side:.0%} < {p_min:.0%})"
+                self.skips += 1
+                self.last_info = out
+                return out
+
         self.last_info = out
-        if pick:
-            name, k, pn, _ = pick
-            out["ctx"] = f"{self.STRAT_NAMES[name]} · đúng {k}/{pn}"
-        else:
-            out["ctx"] = "Chưa cách nào vượt ngẫu nhiên"
-
-        p_min = float(cfg.get("p_side_min") or cfg.get("post") or 0.51)
-        need = max(p_min, float(cfg.get("post") or 0.51) + self.extra_post)
-
-        # Ngân sách nghỉ: tối đa MAX_SKIPS_PER_100 trong 100 phiên gần
-        recent_decisions = list(getattr(self, "decision_log", []))[-100:]
-        skips_recent = sum(1 for d in recent_decisions if d == "skip")
-        skip_budget_left = max(0, MAX_SKIPS_PER_100 - skips_recent)
-
-        if n < cfg.get("min_sessions", 0):
-            out["reason"] = f"Cần thêm dữ liệu, mới có {n}/{cfg['min_sessions']} phiên"
-            self._log_decision("skip")
-            return out
-
-        block = None
-        if in_blackout():
-            block = "Khung 0h-5h không áp dụng công thức"
-        elif p_side < need:
-            block = f"Chưa đủ chắc ({p_side:.0%}, cần ≥{need:.0%})"
-        # Bỏ điều kiện "chưa cách nào / bất đồng" để giảm bỏ qua
-
-        # Hết ngân sách nghỉ → buộc đánh
-        if block and skip_budget_left <= 0 and not in_blackout():
-            block = None
-            out["reason"] = f"Hết suất nghỉ ({skips_recent}/100) · buộc đánh"
-        
-        # Nếu đang trong chu kỳ tạm nghỉ, nghỉ đủ 2-3 phiên rồi mới hoạt động lại.
-        if self.pause_remaining > 0 and skip_budget_left > 0:
-            self.pause_remaining -= 1
-            self.skip_streak += 1
-            done = self.pause_total - self.pause_remaining
-            out["reason"] = f"Cầu khó · tạm nghỉ {done}/{self.pause_total} phiên"
-            out["pause"] = True
-            self._log_decision("skip")
-            return out
-
-        if block is None:
-            self.skip_streak = 0
-            if self.active_after_pause > 0:
-                self.active_after_pause -= 1
-            out["side"] = side
-            out["reason"] = f"Đủ điều kiện ({max(post, p_side):.0%} ≥ {need:.0%}), có thể cược"
-            self._log_decision("bet")
-            return out
-
-        # Sau mỗi chu kỳ nghỉ phải có ít nhất 3 phiên hoạt động, tránh kiểu
-        # đánh một phiên rồi lại nghỉ ngay. Trong nhịp hoạt động, vẫn báo tín hiệu
-        # tổng hợp nhưng ghi rõ đây là tín hiệu yếu hơn chuẩn.
-        if self.active_after_pause > 0:
-            self.active_after_pause -= 1
-            self.skip_streak = 0
-            out["side"] = side
-            out["reason"] = (
-                f"Đã qua nhịp nghỉ · hoạt động {ACTIVE_SESSIONS_AFTER_PAUSE - self.active_after_pause}/"
-                f"{ACTIVE_SESSIONS_AFTER_PAUSE}; tín hiệu thận trọng ({post:.0%})"
-            )
-            out["active_cycle"] = True
-            return out
-
-        # Chỉ nghỉ khi cầu khó rõ rệt. Mỗi đợt nghỉ 2 hoặc tối đa 3 phiên.
-        votes = [v for v in strat.values() if v in (TAI, XIU)]
-        agreement = max(votes.count(TAI), votes.count(XIU)) / len(votes) if votes else 0.5
-        severe = (
-            post < max(0.50, need - 0.10)
-            or agreement < 0.55
-            or self.worse_than_chance()
-            or p_side < 0.54
-        )
-        duration = min(MAX_PAUSE_SESSIONS, 3 if severe else PAUSE_SESSIONS)
-        self.pause_total = duration
-        self.pause_remaining = duration - 1
-        self.active_after_pause = ACTIVE_SESSIONS_AFTER_PAUSE
-        self.pause_events += 1
-        self.skip_streak = 1
-        self.skips += 1
-        out["reason"] = f"Cầu khó · tạm nghỉ 1/{duration} phiên; sau đó hoạt động ít nhất {ACTIVE_SESSIONS_AFTER_PAUSE} phiên"
-        out["pause"] = True
-        self._log_decision("skip")
         return out
 
-    def record_shadow(self, strat, actual):
-        """Ghi nhận từng chiến lược đúng hay sai sau khi biết kết quả."""
-        for name, pred in (strat or {}).items():
-            dq = self.shadow.setdefault(name, deque(maxlen=self.SHADOW_WINDOW * 2))
-            if pred is None:
-                continue
-            dq.append(1 if pred == actual else 0)
-
-    def bias_report(self):
-        """p-value của hai kiểm định: xúc xắc có lệch mặt không, Tài/Xỉu có lệch 50/50 không."""
-        recs = list(self.recs.values())
-        faces = [0] * 6
-        for _, _, dice in recs[-300:]:
-            for x in dice:
-                if 1 <= x <= 6:
-                    faces[x - 1] += 1
-        total = sum(faces)
-        p_face = None
-        if total >= 60:
-            exp = total / 6.0
-            chi = sum((o - exp) ** 2 / exp for o in faces)
-            p_face = chi2_sf(chi, 5)
-        seq = self.results()[-500:]
-        n = len(seq)
-        p_tx = None
-        if n >= 30:
-            k = sum(1 for x in seq if x == TAI)
-            z = (k - n / 2.0) / math.sqrt(n / 4.0)
-            p_tx = math.erfc(abs(z) / math.sqrt(2))
-        return p_face, p_tx
-
     def learn(self, experts_p, p_tai, actual):
-        if not experts_p:
-            return
-        y = actual == TAI
-        for key, p in experts_p.items():
-            p = min(max(p, self.EPS), 1 - self.EPS)
-            loss = -math.log(p if y else 1 - p)
-            self.loss[key] = self.GAMMA * self.loss.get(key, 0.0) + loss
-        pt = min(max(p_tai, self.EPS), 1 - self.EPS)
-        self.calib.append((pt, y))
+        return
 
     def record(self, pred, p_side, actual):
-        if pred is None:
+        if pred not in (TAI, XIU) or actual not in (TAI, XIU):
             return
-        self.perf.append((pred, actual, p_side))
-        if len(self.perf) >= 20:
-            acc = self.accuracy() / 100
-            if acc < 0.47:
-                self.extra_post = min(0.04, self.extra_post + 0.01)
-            elif acc > 0.55:
-                self.extra_post = max(0.0, self.extra_post - 0.005)
+        self.perf.append((pred, actual, float(p_side or 0.5)))
 
-    def _log_decision(self, kind):
-        if not hasattr(self, "decision_log"):
-            self.decision_log = deque(maxlen=200)
-        self.decision_log.append(kind)
-
-    PAUSE_WINDOW = 80
-    PAUSE_P = 0.05
-
-    def recent_hits(self):
-        recent = list(self.perf)[-self.PAUSE_WINDOW:]
-        n = len(recent)
-        k = sum(1 for pr, ac, _ in recent if pr == ac)
-        return k, n
-
-    def worse_than_chance(self):
-        """Tạm dừng cược khi dự đoán gần đây kém ngẫu nhiên có ý nghĩa thống kê."""
-        k, n = self.recent_hits()
-        return n >= 30 and binom_p_le(k, n) < self.PAUSE_P
+    def record_shadow(self, strat, actual):
+        return
 
     def accuracy(self):
         if not self.perf:
@@ -1844,9 +1348,7 @@ class CauEngine:
         return hits / len(self.perf) * 100
 
     def logloss(self):
-        if not self.calib:
-            return None
-        return sum(-math.log(p if y else 1 - p) for p, y in self.calib) / len(self.calib)
+        return None
 
     def expected_roi(self):
         if not self.perf:
