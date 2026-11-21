@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#1a120c">
-<title>LC79 VIP</title>
+<title>htungdz-autocuoc</title>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -797,8 +797,13 @@ $("pwBtn").onclick=()=>{
 async function api(path,opts={}){
   const headers=Object.assign({"Content-Type":"application/json","X-Session-Token":token},opts.headers||{});
   const r=await fetch(path,Object.assign({},opts,{headers}));
-  if(r.status===401){doLogout(true);throw new Error("Hết phiên — đăng nhập lại")}
   const j=await r.json().catch(()=>({}));
+  // Chỉ đăng xuất khi token của dashboard nội bộ không hợp lệ.
+  // HTTP 401 từ LC79 trước đây cũng bị hiểu nhầm là hết phiên web.
+  if(r.status===401&&j.error_code==="DASHBOARD_SESSION_INVALID"){
+    doLogout(true);
+    throw new Error(j.error||"Phiên web đã hết hạn — vui lòng đăng nhập lại");
+  }
   if(!r.ok) throw new Error(j.error||j.message||("Lỗi "+r.status));
   return j;
 }
@@ -814,7 +819,7 @@ async function doLogin(){
   try{
     const r=await fetch("/api/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})});
     const j=await r.json();
-    if(!r.ok||!j.ok) throw new Error(j.error||"Sai tài khoản hoặc mật khẩu");
+    if(!r.ok||!j.ok) throw new Error(j.error||"LC79 chưa xác nhận được đăng nhập");
     token=j.token;nickname=j.nickname||u;
     sessionStorage.setItem("lc79_session",token);sessionStorage.setItem("lc79_nick",nickname);
     $("login").classList.add("leaving");
@@ -1137,7 +1142,7 @@ if(token){
   $("login").style.display="none";$("app").style.display="block";
   $("userlabel").textContent=nickname||"VIP";
   $("av").textContent=(nickname||"LC").slice(0,2).toUpperCase();
-  refresh().then(()=>Promise.allSettled([loadProfile(),loadActivity(true)])).then(startPoll).catch(()=>{doLogout(true);toast("Phiên cũ hết hạn","warn")});
+  refresh().then(()=>Promise.allSettled([loadProfile(),loadActivity(true)])).then(startPoll).catch(e=>{toast(e?.message||"Không tải được dữ liệu dashboard","warn")});
 }
 </script>
 </body>
